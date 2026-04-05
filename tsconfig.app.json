@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "jsx": "preserve",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "electrobun/browser": ["./node_modules/electrobun/dist/api/browser/index.ts"]
+    }
+  },
+  "include": ["src/mainview/**/*", "src/shared/**/*", "env.d.ts"],
+  "exclude": ["src/bun/**/*"]
+}

@@ -1,0 +1,184 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build (Windows)
+        run: bun run build:win
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          # electrobun 官方产物：Setup.exe + .tar.zst 打包在一个 zip 里
+          # zip 结构：根目录放 Setup.exe，.installer/ 子目录放 .tar.zst 和 metadata.json
+          # 用户解压后双击根目录的 Setup.exe 即可（Setup.exe 会自动找同目录的 .installer/*.tar.zst）
+          $zip = Get-ChildItem -Path "build/" -Filter "*-Setup-*.zip" -Recurse | Select-Object -First 1
+          if ($zip) {
+            Copy-Item $zip.FullName "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip"
+          } else {
+            # fallback：如果没有 zip，直接用 Setup.exe + tar.zst 手动打包
+            $exe = Get-ChildItem -Path "build/" -Filter "*-Setup-*.exe" -Recurse | Select-Object -First 1
+            $zst = Get-ChildItem -Path "build/" -Filter "*-Setup-*.tar.zst" -Recurse | Select-Object -First 1
+            $meta = Get-ChildItem -Path "build/" -Filter "*-Setup-*.metadata.json" -Recurse | Select-Object -First 1
+            if ($exe -and $zst) {
+              $staging = "staging-win"
+              $installerDir = Join-Path $staging ".installer"
+              New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+              Copy-Item $exe.FullName (Join-Path $staging $exe.Name)
+              Copy-Item $zst.FullName (Join-Path $installerDir $zst.Name)
+              if ($meta) { Copy-Item $meta.FullName (Join-Path $installerDir $meta.Name) }
+              Compress-Archive -Path "$staging\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force
+              Remove-Item -Recurse -Force $staging
+            }
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vh-claw-windows
+          path: vh-claw-${{ github.event.inputs.version }}-windows-x64.zip
+          if-no-files-found: warn
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build (macOS)
+        run: bun run build:mac
+
+      - name: Package installer
+        run: |
+          # electrobun 在 macOS 生成 .dmg 或 .tar.zst，优先找 .dmg
+          DMG=$(find build/ -name "*.dmg" | head -1)
+          if [ -n "$DMG" ]; then
+            cp "$DMG" "vh-claw-${{ github.event.inputs.version }}-macos-universal.dmg"
+          else
+            # fallback: 打包整个 app 目录
+            APP=$(find build/ -name "*.app" -maxdepth 5 | head -1)
+            if [ -n "$APP" ]; then
+              zip -r "vh-claw-${{ github.event.inputs.version }}-macos-universal.zip" "$APP"
+            else
+              zip -r "vh-claw-${{ github.event.inputs.version }}-macos-universal.zip" build/
+            fi
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vh-claw-macos
+          path: |
+            vh-claw-${{ github.event.inputs.version }}-macos-universal.dmg
+            vh-claw-${{ github.event.inputs.version }}-macos-universal.zip
+          if-no-files-found: ignore
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build (Linux)
+        run: bun run build:linux
+
+      - name: Package installer
+        run: |
+          # 优先找 .AppImage（双击可运行）
+          APPIMAGE=$(find build/ -name "*.AppImage" | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            cp "$APPIMAGE" "vh-claw-${{ github.event.inputs.version }}-linux-x64.AppImage"
+          else
+            # fallback: 打包整个 build 目录
+            tar -czf "vh-claw-${{ github.event.inputs.version }}-linux-x64.tar.gz" build/
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vh-claw-linux
+          path: |
+            vh-claw-${{ github.event.inputs.version }}-linux-x64.AppImage
+            vh-claw-${{ github.event.inputs.version }}-linux-x64.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    name: Publish Release
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts/ -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: "VH-Claw ${{ github.event.inputs.version }}"
+          body: |
+            ## VH-Claw ${{ github.event.inputs.version }}
+
+            便携式 OpenClaw 管理工具，无需配置，开箱即用。
+
+            ### 下载
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `VH-Claw-Setup-canary.exe` 安装，首次运行需联网下载运行时 |
+            | macOS Universal | `vh-claw-*-macos-universal.dmg` | 挂载后拖入应用程序文件夹 |
+            | Linux x64 | `vh-claw-*-linux-x64.AppImage` | 赋权后双击运行 |
+
+            > **Windows 说明**：解压 zip 后，双击根目录的 `VH-Claw-Setup-canary.exe`，程序会自动安装到 `%APPDATA%` 并启动。
+
+            ### Linux 使用说明
+            ```bash
+            chmod +x vh-claw-*-linux-x64.AppImage
+            ./vh-claw-*-linux-x64.AppImage
+            ```
+          draft: false
+          prerelease: false
+          files: artifacts/**/*

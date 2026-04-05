@@ -1,0 +1,31 @@
+{
+	"name": "vh-claw",
+	"version": "1.0.0",
+	"type": "module",
+	"description": "VH-Claw — 便携式 OpenClaw 管理工具",
+	"scripts": {
+		"start": "vite build && electrobun dev",
+		"dev": "vite build && electrobun dev --watch",
+		"dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
+		"hmr": "vite --port 5173",
+		"build:win": "vite build && electrobun build --env=canary --platform=win",
+		"build:mac": "vite build && electrobun build --env=canary --platform=mac",
+		"build:linux": "vite build && electrobun build --env=canary --platform=linux",
+		"build:all": "vite build && electrobun build --env=canary"
+	},
+	"dependencies": {
+		"@xterm/addon-fit": "^0.11.0",
+		"@xterm/addon-web-links": "^0.12.0",
+		"@xterm/xterm": "^6.0.0",
+		"electrobun": "1.16.0"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@vitejs/plugin-vue": "^5.2.1",
+		"concurrently": "^9.1.0",
+		"typescript": "^5.7.2",
+		"vite": "^6.0.3",
+		"vue": "^3.5.13",
+		"vue-tsc": "^2.2.0"
+	}
+}
