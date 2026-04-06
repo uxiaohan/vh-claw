@@ -81,28 +81,28 @@ jobs:
 
       - name: Package installer
         run: |
-          # electrobun 在 macOS 生成 .dmg 或 .tar.zst，优先找 .dmg
-          DMG=$(find build/ -name "*.dmg" | head -1)
-          if [ -n "$DMG" ]; then
-            cp "$DMG" "vh-claw-${{ github.event.inputs.version }}-macos-universal.dmg"
+          # 找 tar.zst 解压，fallback 直接找 .app
+          TARZST=$(find build/ -name "*.tar.zst" | head -1)
+          if [ -n "$TARZST" ]; then
+            mkdir -p mac-extract
+            tar -xf "$TARZST" -C mac-extract
+            xattr -cr mac-extract/ || true
+            APP=$(find mac-extract/ -name "*.app" -maxdepth 5 | head -1)
+            [ -z "$APP" ] && APP="mac-extract"
           else
-            # fallback: 打包整个 app 目录
             APP=$(find build/ -name "*.app" -maxdepth 5 | head -1)
-            if [ -n "$APP" ]; then
-              zip -r "vh-claw-${{ github.event.inputs.version }}-macos-universal.zip" "$APP"
-            else
-              zip -r "vh-claw-${{ github.event.inputs.version }}-macos-universal.zip" build/
-            fi
+            [ -z "$APP" ] && APP="build"
+            xattr -cr "$APP" || true
           fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "vh-claw-${{ github.event.inputs.version }}-macos-arm64.zip"
+          [ -d "mac-extract" ] && rm -rf mac-extract || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: vh-claw-macos
-          path: |
-            vh-claw-${{ github.event.inputs.version }}-macos-universal.dmg
-            vh-claw-${{ github.event.inputs.version }}-macos-universal.zip
-          if-no-files-found: ignore
+          path: vh-claw-${{ github.event.inputs.version }}-macos-arm64.zip
+          if-no-files-found: warn
 
   release:
     name: Publish Release
@@ -135,7 +135,7 @@ jobs:
             | 平台 | 文件 | 说明 |
             |------|------|------|
             | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `Windows启动.bat` 运行，首次运行需联网下载运行时 |
-            | macOS Universal | `vh-claw-*-macos-universal.dmg` | 挂载后将 .app 拖入 U 盘，双击启动 |
+            | macOS arm64 | `vh-claw-*-macos-arm64.zip` | 解压后将 .app 拖入 U 盘，双击启动 |
           draft: false
           prerelease: false
           files: artifacts/**/*
