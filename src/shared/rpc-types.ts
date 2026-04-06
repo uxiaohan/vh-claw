@@ -82,7 +82,7 @@ export interface ConfiguredModel {
 }
 
 /**
- * OpenClaw Portable RPC 契约
+ * VH-Claw - OpenClaw Portable RPC 契约
  */
 export interface OpenClawRPCSchema extends ElectrobunRPCSchema {
   bun: {

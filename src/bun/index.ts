@@ -140,7 +140,7 @@ const rpc = BrowserView.defineRPC<OpenClawRPCSchema>({
 // ─── 创建主窗口 ───────────────────────────────────────────────────────────────
 
 const mainWindow = new BrowserWindow({
-  title: "OpenClaw Portable",
+  title: "VH-Claw - OpenClaw Portable",
   url,
   frame: {
     width: 1100,
