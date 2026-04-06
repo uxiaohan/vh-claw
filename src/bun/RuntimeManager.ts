@@ -71,7 +71,7 @@ export function getSharedRoot(): string {
     // 上溯三层：MacOS → Contents → *.app → U盘根
     return resolve(join(base, "..", "..", ".."));
   }
-  // Windows / Linux：bin/ 的父目录即为 U 盘根
+  // Windows：bin/ 的父目录即为 U 盘根
   return resolve(join(base, ".."));
 }
 
@@ -157,12 +157,10 @@ function getBunDownloadInfo(): { url: string; filename: string } {
     "win32-arm64": "bun-windows-aarch64.zip",
     "darwin-x64": "bun-darwin-x64.zip",
     "darwin-arm64": "bun-darwin-aarch64.zip",
-    "linux-x64": "bun-linux-x64.zip",
-    "linux-arm64": "bun-linux-aarch64.zip",
   };
 
   const key = `${platform}-${arch}`;
-  const filename = fileMap[key] ?? "bun-linux-x64.zip";
+  const filename = fileMap[key] ?? "bun-darwin-x64.zip";
 
   const version = "bun-v1.3.11";
   const rawUrl = `${BUN_RELEASE_BASE}${version}/${filename}`;
@@ -846,7 +844,7 @@ export function ensureNpxShim(openclawDir: string): void {
         writeFileSync(shimCmd, `@"${bunBin}" x %*\r\n`, "utf8");
       }
     } else {
-      // Mac/Linux：创建 npx shell shim
+      // Mac：创建 npx shell shim
       const shimSh = join(binDir, "npx");
       if (!existsSync(shimSh)) {
         writeFileSync(shimSh, `#!/bin/sh\nexec "${bunBin}" x "$@"\n`, "utf8");
@@ -954,13 +952,6 @@ export async function openTerminal(): Promise<void> {
   } else if (process.platform === "darwin") {
     const script = `export PATH='${bunDir}:${binDir}:${existingPath}'; export OPENCLAW_STATE_DIR='${stateDir}'; export OPENCLAW_CONFIG_PATH='${configPath}'; echo 'OpenClaw Terminal Ready'`;
     exec(`osascript -e 'tell application "Terminal" to do script "${script}"'`);
-  } else {
-    const envStr = `PATH='${bunDir}:${binDir}:${existingPath}' OPENCLAW_STATE_DIR='${stateDir}' OPENCLAW_CONFIG_PATH='${configPath}'`;
-    const terminals = ["gnome-terminal", "xterm", "konsole", "xfce4-terminal"];
-    for (const term of terminals) {
-      try { exec(`${envStr} ${term}`); break; }
-      catch { continue; }
-    }
   }
 }
 
@@ -980,7 +971,7 @@ let _ptyIdCounter = 0;
 /**
  * 启动一个交互式子进程（PTY 模式）。
  * - Windows：spawn bun.exe，TERM=xterm-256color，stdin/stdout/stderr 管道
- * - Mac/Linux：spawn bun，TERM=dumb 禁止 readline 回显，避免字符重复
+ * - Mac：spawn bun，TERM=xterm-256color，stdin/stdout/stderr 管道
  * 返回 sessionId，后续通过 ptyInput/ptyResize/ptyStop 控制。
  */
 export async function ptyStart(
@@ -1040,9 +1031,7 @@ export async function ptyStart(
       },
     );
   } else {
-    // Mac/Linux：保持 xterm-256color 以支持 @clack/prompts 的颜色和 ANSI 重绘序列。
-    // 字符重复问题的根因是 xterm.js 的 convertEol:true 把 \r 转成 \r\n，
-    // 导致 clack 的覆盖重绘变成追加换行。已在前端将 convertEol 改为 false 修复。
+    // Mac：pipe 模式，TERM=xterm-256color 保持颜色和 ANSI 序列支持
     env.TERM = "xterm-256color";
     env.COLORTERM = "truecolor";
     env.FORCE_COLOR = "3";

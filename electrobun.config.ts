@@ -17,10 +17,6 @@ export default {
 			bundleCEF: false,
 			icon: "resources/icons/icon.icns",
 		},
-		linux: {
-			bundleCEF: false,
-			icon: "resources/icons/icon.png",
-		},
 		win: {
 			bundleCEF: false,
 			icon: "resources/icons/icon.ico",

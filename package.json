@@ -10,8 +10,7 @@
 		"hmr": "vite --port 5173",
 		"build:win": "vite build && electrobun build --env=canary --platform=win",
 		"build:mac": "vite build && electrobun build --env=canary --platform=mac",
-		"build:linux": "vite build && electrobun build --env=canary --platform=linux",
-		"build:all": "vite build && electrobun build --env=canary"
+		"build:all": "vite build && electrobun build --env=canary --platform=win && electrobun build --env=canary --platform=mac"
 	},
 	"dependencies": {
 		"@xterm/addon-fit": "^0.11.0",

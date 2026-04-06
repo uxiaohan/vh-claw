@@ -104,46 +104,9 @@ jobs:
             vh-claw-${{ github.event.inputs.version }}-macos-universal.zip
           if-no-files-found: ignore
 
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build (Linux)
-        run: bun run build:linux
-
-      - name: Package installer
-        run: |
-          # 优先找 .AppImage（双击可运行）
-          APPIMAGE=$(find build/ -name "*.AppImage" | head -1)
-          if [ -n "$APPIMAGE" ]; then
-            cp "$APPIMAGE" "vh-claw-${{ github.event.inputs.version }}-linux-x64.AppImage"
-          else
-            # fallback: 打包整个 build 目录
-            tar -czf "vh-claw-${{ github.event.inputs.version }}-linux-x64.tar.gz" build/
-          fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vh-claw-linux
-          path: |
-            vh-claw-${{ github.event.inputs.version }}-linux-x64.AppImage
-            vh-claw-${{ github.event.inputs.version }}-linux-x64.tar.gz
-          if-no-files-found: ignore
-
   release:
     name: Publish Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -171,15 +134,8 @@ jobs:
 
             | 平台 | 文件 | 说明 |
             |------|------|------|
-            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `/bin/lancher.exe` 运行，首次运行需联网下载运行时 |
-            | macOS Universal | `vh-claw-*-macos-universal.dmg` | 挂载后拖入应用程序文件夹 |
-            | Linux x64 | `vh-claw-*-linux-x64.AppImage` | 赋权后双击运行 |
-
-            ### Linux 使用说明
-            ```bash
-            chmod +x vh-claw-*-linux-x64.AppImage
-            ./vh-claw-*-linux-x64.AppImage
-            ```
+            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `Windows启动.bat` 运行，首次运行需联网下载运行时 |
+            | macOS Universal | `vh-claw-*-macos-universal.dmg` | 挂载后将 .app 拖入 U 盘，双击启动 |
           draft: false
           prerelease: false
           files: artifacts/**/*
