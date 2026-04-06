@@ -271,6 +271,7 @@ export async function installOpenClaw(
           "@slack/web-api": "latest",
           "@sliverp/qqbot": "latest",
           "@larksuiteoapi/node-sdk": "latest",
+          "@zed-industries/codex-acp": "^0.11.1",
         },
       },
       null, 2,
@@ -321,6 +322,8 @@ export async function installOpenClaw(
 
   // 创建 warning-filter shim（openclaw.mjs 动态 import 无 hash 路径）
   ensureWarningFilterShim(openclawDir);
+  // 创建 npx shim，让 openclaw 能用 bunx 替代 npx（便携环境无 Node.js）
+  ensureNpxShim(openclawDir);
 
   // 部署中文技能包
   onProgress("正在部署中文技能包...", 95);
@@ -599,33 +602,45 @@ export async function startOpenClaw(
   // 确保配置文件存在
   await ensureDefaultConfig();
 
-  // 确保 warning-filter shim 存在（openclaw.mjs 动态 import 无 hash 路径）
+  // 确保 warning-filter shim 和 npx shim 存在
   ensureWarningFilterShim(openclawDir);
+  ensureNpxShim(openclawDir);
 
   const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
   const bunDir = dirname(bunBin);
+  const binDir = join(openclawDir, "node_modules", ".bin");
   const existingPath = process.env.PATH ?? "";
-  // Mac GUI 应用 PATH 不含 homebrew/nvm 路径，注入 bunDir 确保子进程能找到 bun 自身
-  const patchedPath = existingPath.includes(bunDir)
-    ? existingPath
-    : `${bunDir}:${existingPath}`;
+  const sep = process.platform === "win32" ? ";" : ":";
+  // 注入 bunDir 和 node_modules/.bin（含 npx shim），确保子进程能找到 bun 和 npx
+  let patchedPath = existingPath;
+  if (!patchedPath.includes(bunDir)) patchedPath = `${bunDir}${sep}${patchedPath}`;
+  if (!patchedPath.includes(binDir)) patchedPath = `${binDir}${sep}${patchedPath}`;
+
+  // Mac 的 lsof 在 /usr/sbin/，确保子进程能找到
+  const systemPath = process.platform === "darwin"
+    ? patchedPath.includes("/usr/sbin") ? patchedPath : `/usr/sbin:/usr/bin:${patchedPath}`
+    : patchedPath;
 
   // 直接运行 openclaw.mjs，避免 `bun x` 触发 #!/usr/bin/env node shebang 查找
+  // 不传 --force，避免依赖 fuser/lsof 等系统工具
   _openclawProcess = Bun.spawn(
     [
       bunBin, "run", openclawMjs,
       "gateway", "run",
       "--allow-unconfigured",
-      "--force",
       "--port", String(OPENCLAW_PORT),
     ],
     {
       cwd: openclawDir,
       env: {
         ...process.env,
-        PATH: patchedPath,
+        PATH: systemPath,
         OPENCLAW_STATE_DIR: stateDir,
         OPENCLAW_CONFIG_PATH: configPath,
+        // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
+        // 与 OPENCLAW_STATE_DIR 保持一致，workspace 也落在 config/.openclaw/workspace
+        HOME: join(getSharedRoot(), "config"),
+        USERPROFILE: join(getSharedRoot(), "config"),
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -791,6 +806,37 @@ export function ensureWarningFilterShim(openclawDir: string): void {
   }
 }
 
+/**
+ * 在 node_modules/.bin/ 下创建 npx shim，让 openclaw 能用 bunx 替代 npx。
+ * 便携环境无 Node.js/npm，openclaw 内部调用 npx 时会失败，
+ * 通过 shim 将 npx 重定向到 bun x（功能等价）。
+ */
+export function ensureNpxShim(openclawDir: string): void {
+  const binDir = join(openclawDir, "node_modules", ".bin");
+  if (!existsSync(binDir)) return;
+
+  const bunBin = getBunBinary();
+
+  try {
+    if (process.platform === "win32") {
+      // Windows：创建 npx.cmd shim
+      const shimCmd = join(binDir, "npx.cmd");
+      if (!existsSync(shimCmd)) {
+        writeFileSync(shimCmd, `@"${bunBin}" x %*\r\n`, "utf8");
+      }
+    } else {
+      // Mac/Linux：创建 npx shell shim
+      const shimSh = join(binDir, "npx");
+      if (!existsSync(shimSh)) {
+        writeFileSync(shimSh, `#!/bin/sh\nexec "${bunBin}" x "$@"\n`, "utf8");
+        Bun.spawnSync(["chmod", "+x", shimSh]);
+      }
+    }
+  } catch {
+    // 创建失败不影响主流程
+  }
+}
+
 // ─── 内置命令执行 ─────────────────────────────────────────────────────────────
 
 /**
@@ -810,8 +856,9 @@ export async function runOpenClawCommand(
     return { stdout: "", stderr: "OpenClaw 未安装，请先初始化环境", exitCode: 1 };
   }
 
-  // 确保 warning-filter shim 存在
+  // 确保 warning-filter shim 和 npx shim 存在
   ensureWarningFilterShim(openclawDir);
+  ensureNpxShim(openclawDir);
 
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -819,6 +866,9 @@ export async function runOpenClawCommand(
   }
   env["OPENCLAW_STATE_DIR"] = stateDir;
   env["OPENCLAW_CONFIG_PATH"] = configPath;
+  // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
+  env["HOME"] = join(getSharedRoot(), "config");
+  env["USERPROFILE"] = join(getSharedRoot(), "config");
   // Mac GUI 应用 PATH 不含 bun 目录，注入确保子进程能找到 bun 自身
   const bunDir = dirname(bunBin);
   const existingPath = env["PATH"] ?? "";
@@ -930,6 +980,7 @@ export async function ptyStart(
 
   // 确保 shim 存在
   ensureWarningFilterShim(openclawDir);
+  ensureNpxShim(openclawDir);
 
   const bunDir = dirname(bunBin);
   const existingPath = process.env.PATH ?? "";
@@ -942,6 +993,9 @@ export async function ptyStart(
     PATH: patchedPath,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
+    // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
+    HOME: join(getSharedRoot(), "config"),
+    USERPROFILE: join(getSharedRoot(), "config"),
     COLUMNS: String(cols),
     LINES: String(rows),
   };
