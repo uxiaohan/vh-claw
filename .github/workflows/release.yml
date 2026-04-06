@@ -29,27 +29,24 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # electrobun 官方产物：Setup.exe + .tar.zst 打包在一个 zip 里
-          # zip 结构：根目录放 Setup.exe，.installer/ 子目录放 .tar.zst 和 metadata.json
-          # 用户解压后双击根目录的 Setup.exe 即可（Setup.exe 会自动找同目录的 .installer/*.tar.zst）
-          $zip = Get-ChildItem -Path "build/" -Filter "*-Setup-*.zip" -Recurse | Select-Object -First 1
-          if ($zip) {
-            Copy-Item $zip.FullName "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip"
+          # 找到 tar.zst 文件
+          $zst = Get-ChildItem -Path "build/" -Filter "*.tar.zst" -Recurse | Select-Object -First 1
+          if ($zst) {
+            # 创建临时解压目录
+            $extractDir = "win-extract"
+            New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+            
+            # 使用 tar 解压 .tar.zst 文件
+            tar -xf $zst.FullName -C $extractDir
+            
+            # 将解压后的文件打包成 zip
+            Compress-Archive -Path "$extractDir\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force
+            
+            # 清理临时目录
+            Remove-Item -Recurse -Force $extractDir
           } else {
-            # fallback：如果没有 zip，直接用 Setup.exe + tar.zst 手动打包
-            $exe = Get-ChildItem -Path "build/" -Filter "*-Setup-*.exe" -Recurse | Select-Object -First 1
-            $zst = Get-ChildItem -Path "build/" -Filter "*-Setup-*.tar.zst" -Recurse | Select-Object -First 1
-            $meta = Get-ChildItem -Path "build/" -Filter "*-Setup-*.metadata.json" -Recurse | Select-Object -First 1
-            if ($exe -and $zst) {
-              $staging = "staging-win"
-              $installerDir = Join-Path $staging ".installer"
-              New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
-              Copy-Item $exe.FullName (Join-Path $staging $exe.Name)
-              Copy-Item $zst.FullName (Join-Path $installerDir $zst.Name)
-              if ($meta) { Copy-Item $meta.FullName (Join-Path $installerDir $meta.Name) }
-              Compress-Archive -Path "$staging\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force
-              Remove-Item -Recurse -Force $staging
-            }
+            Write-Error "tar.zst file not found!"
+            exit 1
           }
 
       - name: Upload artifact
@@ -168,11 +165,9 @@ jobs:
 
             | 平台 | 文件 | 说明 |
             |------|------|------|
-            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `VH-Claw-Setup-canary.exe` 安装，首次运行需联网下载运行时 |
+            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `/bin/lancher.exe` 运行，首次运行需联网下载运行时 |
             | macOS Universal | `vh-claw-*-macos-universal.dmg` | 挂载后拖入应用程序文件夹 |
             | Linux x64 | `vh-claw-*-linux-x64.AppImage` | 赋权后双击运行 |
-
-            > **Windows 说明**：解压 zip 后，双击根目录的 `VH-Claw-Setup-canary.exe`，程序会自动安装到 `%APPDATA%` 并启动。
 
             ### Linux 使用说明
             ```bash

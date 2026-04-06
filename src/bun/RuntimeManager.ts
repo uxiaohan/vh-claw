@@ -1,4 +1,4 @@
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import { existsSync, mkdirSync, readdirSync, cpSync, writeFileSync } from "fs";
 import type { AppStatus, EnvStatus, OpenClawConfig, ModelProvider, ConfiguredModel } from "../shared/rpc-types";
 
@@ -31,54 +31,56 @@ let _startingTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── 路径计算 ─────────────────────────────────────────────────────────────────
 
 /**
- * 当前平台可执行文件所在目录：
- *   Windows : <U盘>/bin/
- *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/
+ * electrobun 打包后 bun 可执行文件的绝对路径。
+ *
+ * electrobun 实际结构（Windows 和 Mac 相同层级）：
+ *   Windows : <root>/bin/bun.exe      ← process.execPath
+ *   Mac     : <root>/MacOS/bun        ← process.execPath（在 .app 包内）
+ *
+ * process.execPath 是 Bun 运行时自身的绝对路径，始终可靠。
+ */
+export function getBunBinary(): string {
+  return process.execPath;
+}
+
+/**
+ * bun 可执行文件所在目录（绝对路径）。
+ *
+ *   Windows : <root>/bin/
+ *   Mac     : <root>/MacOS/  (在 .app 包内)
  */
 export function getBasePath(): string {
-  return dirname(process.argv0);
+  return dirname(process.execPath);
 }
 
 /**
  * U 盘根目录（config/.openclaw/ 的父目录）。
  *
- * 目录结构：
- *   Windows : <U盘>/bin/launcher.exe
- *             → dirname = <U盘>/bin
- *             → ".."    = <U盘>/          ✅
+ * electrobun 打包结构：
+ *   Windows : <U盘>/bin/bun.exe
+ *             → getBasePath() = <U盘>/bin
+ *             → ".."          = <U盘>/          ✅
  *
- *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/launcher
- *             → dirname = <U盘>/VH-Claw.app/Contents/MacOS
- *             → "../../.." = <U盘>/       ✅
- *
- * 判断依据：Mac 可执行文件路径中包含 ".app/Contents/MacOS"。
+ *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/bun
+ *             → getBasePath() = <U盘>/VH-Claw.app/Contents/MacOS
+ *             → "../../.."    = <U盘>/           ✅
  */
 export function getSharedRoot(): string {
-  const base = dirname(process.argv0);
+  const base = getBasePath();
   if (process.platform === "darwin") {
     // 上溯三层：MacOS → Contents → *.app → U盘根
-    return join(base, "..", "..", "..");
+    return resolve(join(base, "..", "..", ".."));
   }
   // Windows / Linux：bin/ 的父目录即为 U 盘根
-  return join(base, "..");
+  return resolve(join(base, ".."));
 }
 
-export function getRuntimeDir(): string {
-  const platform =
-    process.platform === "win32"
-      ? "windows"
-      : process.platform === "darwin"
-        ? "mac"
-        : "linux";
-  return join(getBasePath(), "runtime", platform);
-}
-
-export function getBunBinary(): string {
-  const ext = process.platform === "win32" ? ".exe" : "";
-  return join(getRuntimeDir(), `bun${ext}`);
-}
-
-/** openclaw 安装目录（node_modules 所在） */
+/**
+ * openclaw 安装目录（node_modules 所在）。
+ * 各平台独立安装在自身可执行文件目录下：
+ *   Windows : <U盘>/bin/data/openclaw/
+ *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/data/openclaw/
+ */
 export function getOpenClawDir(): string {
   return join(getBasePath(), "data", "openclaw");
 }
@@ -87,10 +89,6 @@ export function getOpenClawDir(): string {
  * openclaw 全局配置目录。
  * 放在 U 盘根目录下的 config/.openclaw/，
  * Windows 和 Mac 挂载同一 U 盘时共享同一份配置。
- *
- *   Windows : <U盘>/bin/launcher.exe  → getSharedRoot() = <U盘>/  → <U盘>/config/.openclaw/
- *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/launcher
- *                                     → getSharedRoot() = <U盘>/  → <U盘>/config/.openclaw/
  */
 export function getStateDir(): string {
   return join(getSharedRoot(), "config", ".openclaw");
@@ -153,7 +151,7 @@ function getBunDownloadInfo(): { url: string; filename: string } {
 }
 
 export async function downloadBun(onProgress: ProgressCallback): Promise<void> {
-  const runtimeDir = getRuntimeDir();
+  const runtimeDir = getBasePath();
   mkdirSync(runtimeDir, { recursive: true });
 
   const { url, filename } = getBunDownloadInfo();
