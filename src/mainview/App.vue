@@ -177,6 +177,19 @@ async function handleOpenUrl(url: string) {
 // ─── 生命周期 ─────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
+  // 禁用右键菜单
+  document.addEventListener("contextmenu", (e) => e.preventDefault());
+  // 禁用 F12 / Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+U 等开发者工具快捷键
+  document.addEventListener("keydown", (e) => {
+    if (
+      e.key === "F12" ||
+      (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j" || e.key === "C" || e.key === "c")) ||
+      (e.ctrlKey && (e.key === "U" || e.key === "u"))
+    ) {
+      e.preventDefault();
+    }
+  });
+
   try {
     appStatus.value = await rpc.request.getStatus();
     await refreshConfiguredModels();
@@ -330,7 +343,7 @@ onMounted(async () => {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 16px 0;
+  padding: 16px 0 0;
   overflow: hidden;
 }
 

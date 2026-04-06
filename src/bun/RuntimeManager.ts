@@ -31,37 +31,36 @@ let _startingTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── 路径计算 ─────────────────────────────────────────────────────────────────
 
 /**
- * 获取 U 盘根目录（便携基础路径）。
- *
- * U 盘目录结构：
- *   <usb>/
- *   ├── Windows启动.bat
- *   ├── Mac启动.app          ← Mac 单文件可执行，process.argv0 = <usb>/Mac启动.app
- *   ├── bin/launcher.exe     ← Windows 可执行，process.argv0 = <usb>/bin/launcher.exe
- *   ├── lib/
- *   ├── Resources/
- *   └── config/.openclaw/    ← 跨平台共享配置目录
- *
- * - Windows：argv0 在 bin/ 子目录下，向上 2 级得到 <usb>/
- * - Mac：argv0 是 <usb>/ 下的单文件，向上 1 级得到 <usb>/
- * - 开发环境：回退到 process.cwd()（项目根）方便测试。
+ * 当前平台可执行文件所在目录：
+ *   Windows : <U盘>/bin/
+ *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/
  */
 export function getBasePath(): string {
-  const isDev =
-    process.env.NODE_ENV === "development" ||
-    process.env.ELECTROBUN_ENV === "dev";
+  return dirname(process.argv0);
+}
 
-  if (isDev) {
-    return process.cwd();
+/**
+ * U 盘根目录（config/.openclaw/ 的父目录）。
+ *
+ * 目录结构：
+ *   Windows : <U盘>/bin/launcher.exe
+ *             → dirname = <U盘>/bin
+ *             → ".."    = <U盘>/          ✅
+ *
+ *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/launcher
+ *             → dirname = <U盘>/VH-Claw.app/Contents/MacOS
+ *             → "../../.." = <U盘>/       ✅
+ *
+ * 判断依据：Mac 可执行文件路径中包含 ".app/Contents/MacOS"。
+ */
+export function getSharedRoot(): string {
+  const base = dirname(process.argv0);
+  if (process.platform === "darwin") {
+    // 上溯三层：MacOS → Contents → *.app → U盘根
+    return join(base, "..", "..", "..");
   }
-
-  if (process.platform === "win32") {
-    // Windows: <usb>/bin/launcher.exe → dirname = <usb>/bin → .. = <usb>/
-    return join(dirname(process.argv0), "..");
-  } else {
-    // Mac/Linux: <usb>/launcher.app（单文件）→ dirname = <usb>/
-    return dirname(process.argv0);
-  }
+  // Windows / Linux：bin/ 的父目录即为 U 盘根
+  return join(base, "..");
 }
 
 export function getRuntimeDir(): string {
@@ -86,10 +85,15 @@ export function getOpenClawDir(): string {
 
 /**
  * openclaw 全局配置目录。
- * 强制指向 U 盘根目录下的 config/.openclaw/，实现跨 Windows/Mac 共享。
+ * 放在 U 盘根目录下的 config/.openclaw/，
+ * Windows 和 Mac 挂载同一 U 盘时共享同一份配置。
+ *
+ *   Windows : <U盘>/bin/launcher.exe  → getSharedRoot() = <U盘>/  → <U盘>/config/.openclaw/
+ *   Mac     : <U盘>/VH-Claw.app/Contents/MacOS/launcher
+ *                                     → getSharedRoot() = <U盘>/  → <U盘>/config/.openclaw/
  */
 export function getStateDir(): string {
-  return join(getBasePath(), "config", ".openclaw");
+  return join(getSharedRoot(), "config", ".openclaw");
 }
 
 /** openclaw 配置文件路径 */
@@ -106,10 +110,11 @@ export function getLogDir(): string {
 export async function checkEnvironment(): Promise<EnvStatus> {
   const bunExists = existsSync(getBunBinary());
 
-  // openclaw 安装后 node_modules/openclaw 目录存在
+  // openclaw 安装后 node_modules/openclaw 目录存在，且飞书插件依赖已安装
   const openclawInstalled =
     existsSync(join(getOpenClawDir(), "package.json")) &&
-    existsSync(join(getOpenClawDir(), "node_modules", "openclaw"));
+    existsSync(join(getOpenClawDir(), "node_modules", "openclaw")) &&
+    existsSync(join(getOpenClawDir(), "node_modules", "@larksuiteoapi", "node-sdk"));
 
   const status: EnvStatus = { bunExists, openclawInstalled };
 
@@ -244,7 +249,9 @@ export async function installOpenClaw(
   // 如果 openclaw 安装不完整（缺少关键文件），强制删除 node_modules 重装
   const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
   const warningFilter = join(openclawDir, "node_modules", "openclaw", "dist", "warning-filter.js");
-  if (existsSync(join(openclawDir, "node_modules")) && (!existsSync(openclawMjs) || !existsSync(warningFilter))) {
+  // @larksuiteoapi/node-sdk 是飞书插件的外部依赖，缺失时也需重装
+  const larkSdk = join(openclawDir, "node_modules", "@larksuiteoapi", "node-sdk");
+  if (existsSync(join(openclawDir, "node_modules")) && (!existsSync(openclawMjs) || !existsSync(warningFilter) || !existsSync(larkSdk))) {
     onProgress("检测到安装不完整，正在清理旧文件...", 62);
     try {
       const { rmSync } = await import("fs");
@@ -253,6 +260,7 @@ export async function installOpenClaw(
   }
 
   // 写入 package.json，声明 openclaw 及插件依赖
+  // @larksuiteoapi/node-sdk 是 openclaw 内置飞书插件的外部依赖，需手动补充
   const pkgPath = join(openclawDir, "package.json");
   await Bun.write(
     pkgPath,
@@ -264,6 +272,7 @@ export async function installOpenClaw(
           openclaw: "latest",
           "@slack/web-api": "latest",
           "@sliverp/qqbot": "latest",
+          "@larksuiteoapi/node-sdk": "latest",
         },
       },
       null, 2,
@@ -595,10 +604,18 @@ export async function startOpenClaw(
   // 确保 warning-filter shim 存在（openclaw.mjs 动态 import 无 hash 路径）
   ensureWarningFilterShim(openclawDir);
 
-  // openclaw gateway run --allow-unconfigured --force --port PORT
+  const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
+  const bunDir = dirname(bunBin);
+  const existingPath = process.env.PATH ?? "";
+  // Mac GUI 应用 PATH 不含 homebrew/nvm 路径，注入 bunDir 确保子进程能找到 bun 自身
+  const patchedPath = existingPath.includes(bunDir)
+    ? existingPath
+    : `${bunDir}:${existingPath}`;
+
+  // 直接运行 openclaw.mjs，避免 `bun x` 触发 #!/usr/bin/env node shebang 查找
   _openclawProcess = Bun.spawn(
     [
-      bunBin, "x", "openclaw",
+      bunBin, "run", openclawMjs,
       "gateway", "run",
       "--allow-unconfigured",
       "--force",
@@ -608,6 +625,7 @@ export async function startOpenClaw(
       cwd: openclawDir,
       env: {
         ...process.env,
+        PATH: patchedPath,
         OPENCLAW_STATE_DIR: stateDir,
         OPENCLAW_CONFIG_PATH: configPath,
       },
@@ -803,6 +821,12 @@ export async function runOpenClawCommand(
   }
   env["OPENCLAW_STATE_DIR"] = stateDir;
   env["OPENCLAW_CONFIG_PATH"] = configPath;
+  // Mac GUI 应用 PATH 不含 bun 目录，注入确保子进程能找到 bun 自身
+  const bunDir = dirname(bunBin);
+  const existingPath = env["PATH"] ?? "";
+  if (!existingPath.includes(bunDir)) {
+    env["PATH"] = `${bunDir}:${existingPath}`;
+  }
 
   const proc = Bun.spawn([bunBin, "run", openclawMjs, ...args], {
     cwd: openclawDir,
@@ -909,8 +933,15 @@ export async function ptyStart(
   // 确保 shim 存在
   ensureWarningFilterShim(openclawDir);
 
+  const bunDir = dirname(bunBin);
+  const existingPath = process.env.PATH ?? "";
+  const patchedPath = existingPath.includes(bunDir)
+    ? existingPath
+    : `${bunDir}:${existingPath}`;
+
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    PATH: patchedPath,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
     COLUMNS: String(cols),
@@ -936,12 +967,12 @@ export async function ptyStart(
       },
     );
   } else {
-    // Mac/Linux：设置 TERM=dumb，禁止 readline/linenoise 启用行编辑回显模式。
-    // 若设置 xterm-256color，进程会认为自己在真实终端中并开启本地回显（ECHO），
-    // 导致 xterm.js 发送的每个字符被进程再回显一次，造成字符重复。
-    // TERM=dumb 告知进程不使用高级终端特性，由 xterm.js 负责本地回显显示。
-    env.TERM = "dumb";
-    env.FORCE_COLOR = "1";
+    // Mac/Linux：保持 xterm-256color 以支持 @clack/prompts 的颜色和 ANSI 重绘序列。
+    // 字符重复问题的根因是 xterm.js 的 convertEol:true 把 \r 转成 \r\n，
+    // 导致 clack 的覆盖重绘变成追加换行。已在前端将 convertEol 改为 false 修复。
+    env.TERM = "xterm-256color";
+    env.COLORTERM = "truecolor";
+    env.FORCE_COLOR = "3";
     proc = spawn(
       bunBin,
       ["run", openclawMjs, ...args],

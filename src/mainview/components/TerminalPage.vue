@@ -72,7 +72,7 @@ function initTerm() {
     fontSize: 13,
     lineHeight: 1.5,
     cursorBlink: true,
-    convertEol: true,
+    convertEol: false,
     scrollback: 5000,
     allowProposedApi: true,
   });
