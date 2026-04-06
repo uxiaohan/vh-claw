@@ -655,8 +655,19 @@ export async function startOpenClaw(
   mkdirSync(getLogDir(), { recursive: true });
   mkdirSync(stateDir, { recursive: true });
 
-  // 确保配置文件存在
+  // Mac：启动前强制杀掉占用端口的旧进程，避免 "already running" 错误
+  if (process.platform === "darwin") {
+    try {
+      Bun.spawnSync(["sh", "-c", `lsof -ti tcp:${OPENCLAW_PORT} | xargs kill -9 2>/dev/null || true`],
+        { stdout: "ignore", stderr: "ignore" });
+    } catch { /* ignore */ }
+  }
+
+  // 确保配置文件存在，并强制同步 gateway token（避免 token mismatch）
   await ensureDefaultConfig();
+  await writeConfig({
+    gateway: { mode: "local", auth: { mode: "token", token: GATEWAY_TOKEN } },
+  });
 
   // 确保 warning-filter shim 和 npx shim 存在
   ensureWarningFilterShim(openclawDir);
@@ -778,7 +789,14 @@ export async function stopOpenClaw(): Promise<void> {
       stderr: "inherit",
     });
   } else {
-    _openclawProcess.kill();
+    // Mac：先发 SIGTERM，再用 lsof 强制杀掉端口占用进程
+    _openclawProcess.kill("SIGTERM");
+    if (pid) {
+      try {
+        Bun.spawnSync(["sh", "-c", `lsof -ti tcp:${OPENCLAW_PORT} | xargs kill -9 2>/dev/null || true`],
+          { stdout: "ignore", stderr: "ignore" });
+      } catch { /* ignore */ }
+    }
   }
 
   // 等待退出（最多 5 秒）
