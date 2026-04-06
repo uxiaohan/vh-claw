@@ -47,8 +47,6 @@ const isDark = ref(true);
 type Page = "dashboard" | "model" | "skills" | "terminal";
 const currentPage = ref<Page>("dashboard");
 
-const SKILLS_COUNT = 10;
-
 const appStatus = ref<AppStatus>("uninitialized");
 const isInitializing = ref(false);
 const progressMsg = ref("");
@@ -56,6 +54,7 @@ const progressPct = ref(0);
 const logs = ref<{ text: string; level: "info" | "error"; time: string }[]>([]);
 const currentModel = ref("");
 const configuredModels = ref<ConfiguredModel[]>([]);
+const diskFree = ref("获取中...");
 
 // PTY 状态（带 _ts 时间戳，确保每次推送都是新对象引用，watch 必然触发）
 const ptyChunk = ref<
@@ -193,6 +192,7 @@ onMounted(async () => {
   try {
     appStatus.value = await rpc.request.getStatus();
     await refreshConfiguredModels();
+    diskFree.value = await rpc.request.getDiskFree();
   } catch {
     /* 等待 statusUpdate */
   }
@@ -250,7 +250,7 @@ onMounted(async () => {
         :current-model="currentModel"
         :status-color="statusColor"
         :status-label="statusLabel"
-        :skills-count="SKILLS_COUNT"
+        :disk-free="diskFree"
         @initialize="handleInitialize"
         @start="handleStart"
         @stop="handleStop"

@@ -103,6 +103,27 @@ export function getLogDir(): string {
   return join(getBasePath(), "data", "logs");
 }
 
+/**
+ * 获取 U 盘（共享根目录所在磁盘）的剩余空间，返回格式化字符串如 "12.3 GB"。
+ * 使用 Node.js fs.statfs（Bun 原生支持），跨平台可靠。
+ */
+export async function getDiskFreeSpace(): Promise<string> {
+  try {
+    const { statfs } = await import("node:fs/promises");
+    const root = getSharedRoot();
+    const stats = await statfs(root);
+    const free = stats.bfree * stats.bsize;
+    return formatBytes(free);
+  } catch { /* ignore */ }
+  return "未知";
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + " GB";
+  if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1) + " MB";
+  return (bytes / 1024).toFixed(0) + " KB";
+}
+
 // ─── 环境检测 ─────────────────────────────────────────────────────────────────
 
 export async function checkEnvironment(): Promise<EnvStatus> {

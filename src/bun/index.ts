@@ -80,6 +80,10 @@ const rpc = BrowserView.defineRPC<OpenClawRPCSchema>({
         return await RM.getToken();
       },
 
+      getDiskFree: async () => {
+        return await RM.getDiskFreeSpace();
+      },
+
       getConfig: async () => {
         return await RM.readConfig();
       },

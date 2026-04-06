@@ -38,6 +38,12 @@ jobs:
             
             # 使用 tar 解压 .tar.zst 文件
             tar -xf $zst.FullName -C $extractDir
+
+            # 复制启动脚本到 U 盘根目录（extractDir 下的第一级目录）
+            $appDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
+            if ($appDir) {
+              Copy-Item "resources/Windows启动.bat" -Destination "$($appDir.FullName)\Windows启动.bat" -Force
+            }
             
             # 将解压后的文件打包成 zip
             Compress-Archive -Path "$extractDir\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force

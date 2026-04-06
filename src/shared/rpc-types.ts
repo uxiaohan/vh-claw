@@ -132,6 +132,11 @@ export interface OpenClawRPCSchema extends ElectrobunRPCSchema {
         params: undefined;
         response: string;
       };
+      /** 获取 U 盘剩余空间 */
+      getDiskFree: {
+        params: undefined;
+        response: string;
+      };
       /** 读取当前 openclaw.json 配置 */
       getConfig: {
         params: undefined;

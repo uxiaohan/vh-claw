@@ -11,7 +11,7 @@ const props = defineProps<{
   currentModel: string;
   statusColor: string;
   statusLabel: string;
-  skillsCount: number;
+  diskFree: string;
 }>();
 
 const emit = defineEmits<{
@@ -57,10 +57,10 @@ watch(() => props.logs.length, () => {
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">🎯</div>
+        <div class="stat-icon">💾</div>
         <div class="stat-body">
-          <div class="stat-label">技能包</div>
-          <div class="stat-value">{{ skillsCount }} 个</div>
+          <div class="stat-label">U盘剩余</div>
+          <div class="stat-value">{{ diskFree }}</div>
         </div>
       </div>
     </div>

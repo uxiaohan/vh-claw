@@ -17,7 +17,7 @@ const SKILLS_CN = [
   <div class="page">
     <div class="page-header">
       <h2>技能中心</h2>
-      <p class="page-sub">{{ SKILLS_CN.length }} 个中文优化技能，随 OpenClaw 自动加载</p>
+      <p class="page-sub">{{ SKILLS_CN.length }} 个额外的中文优化技能，随 OpenClaw 内置技能自动加载</p>
     </div>
 
     <div class="skills-grid">
