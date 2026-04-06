@@ -11,15 +11,19 @@ export default {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
 		},
+		appIcon: "resources/icons/icon.png",
 		watchIgnore: ["dist/**"],
 		mac: {
 			bundleCEF: false,
+			icon: "resources/icons/icon.icns",
 		},
 		linux: {
 			bundleCEF: false,
+			icon: "resources/icons/icon.png",
 		},
 		win: {
 			bundleCEF: false,
+			icon: "resources/icons/icon.ico",
 		},
 	},
 } satisfies ElectrobunConfig;

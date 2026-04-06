@@ -33,12 +33,18 @@ let _startingTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * 获取 U 盘根目录（便携基础路径）。
  *
- * 打包后结构：
- *   <usb>/openclaw-portable/bin/launcher.exe  ← process.argv0
- *   <usb>/openclaw-portable/                  ← dirname(argv0)/..
- *   <usb>/                                    ← dirname(argv0)/../../..
+ * U 盘目录结构：
+ *   <usb>/
+ *   ├── Windows启动.bat
+ *   ├── Mac启动.app          ← Mac 单文件可执行，process.argv0 = <usb>/Mac启动.app
+ *   ├── bin/launcher.exe     ← Windows 可执行，process.argv0 = <usb>/bin/launcher.exe
+ *   ├── lib/
+ *   ├── Resources/
+ *   └── config/.openclaw/    ← 跨平台共享配置目录
  *
- * 开发环境：回退到 process.cwd()（项目根）方便测试。
+ * - Windows：argv0 在 bin/ 子目录下，向上 2 级得到 <usb>/
+ * - Mac：argv0 是 <usb>/ 下的单文件，向上 1 级得到 <usb>/
+ * - 开发环境：回退到 process.cwd()（项目根）方便测试。
  */
 export function getBasePath(): string {
   const isDev =
@@ -49,9 +55,13 @@ export function getBasePath(): string {
     return process.cwd();
   }
 
-  // 生产：process.argv0 = .../bin/launcher.exe
-  // 向上 3 级：bin → app-dir → usb-root
-  return join(dirname(process.argv0), "..", "..", "..");
+  if (process.platform === "win32") {
+    // Windows: <usb>/bin/launcher.exe → dirname = <usb>/bin → .. = <usb>/
+    return join(dirname(process.argv0), "..");
+  } else {
+    // Mac/Linux: <usb>/launcher.app（单文件）→ dirname = <usb>/
+    return dirname(process.argv0);
+  }
 }
 
 export function getRuntimeDir(): string {
@@ -74,9 +84,12 @@ export function getOpenClawDir(): string {
   return join(getBasePath(), "data", "openclaw");
 }
 
-/** openclaw state 目录（.openclaw 子目录，存放 openclaw.json） */
+/**
+ * openclaw 全局配置目录。
+ * 强制指向 U 盘根目录下的 config/.openclaw/，实现跨 Windows/Mac 共享。
+ */
 export function getStateDir(): string {
-  return join(getOpenClawDir(), ".openclaw");
+  return join(getBasePath(), "config", ".openclaw");
 }
 
 /** openclaw 配置文件路径 */
@@ -873,8 +886,8 @@ let _ptyIdCounter = 0;
 
 /**
  * 启动一个交互式子进程（PTY 模式）。
- * - Unix/macOS：直接 spawn bun，支持 SIGWINCH resize
- * - Windows：spawn PowerShell，通过 stdin 管道传递输入，VT 序列由 xterm.js 渲染
+ * - Windows：spawn bun.exe，TERM=xterm-256color，stdin/stdout/stderr 管道
+ * - Mac/Linux：spawn bun，TERM=dumb 禁止 readline 回显，避免字符重复
  * 返回 sessionId，后续通过 ptyInput/ptyResize/ptyStop 控制。
  */
 export async function ptyStart(
@@ -900,18 +913,17 @@ export async function ptyStart(
     ...process.env,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
     COLUMNS: String(cols),
     LINES: String(rows),
-    FORCE_COLOR: "3",
   };
 
   let proc: ReturnType<typeof spawn>;
 
   if (process.platform === "win32") {
-    // Windows：直接 spawn bun.exe，保持 stdin/stdout/stderr 管道
-    // 不用 cmd /c（一次性），不用 PowerShell（启动慢），直接运行 bun
+    // Windows：直接 spawn bun.exe，stdin/stdout/stderr 管道
+    env.TERM = "xterm-256color";
+    env.COLORTERM = "truecolor";
+    env.FORCE_COLOR = "3";
     proc = spawn(
       bunBin,
       ["run", openclawMjs, ...args],
@@ -924,6 +936,12 @@ export async function ptyStart(
       },
     );
   } else {
+    // Mac/Linux：设置 TERM=dumb，禁止 readline/linenoise 启用行编辑回显模式。
+    // 若设置 xterm-256color，进程会认为自己在真实终端中并开启本地回显（ECHO），
+    // 导致 xterm.js 发送的每个字符被进程再回显一次，造成字符重复。
+    // TERM=dumb 告知进程不使用高级终端特性，由 xterm.js 负责本地回显显示。
+    env.TERM = "dumb";
+    env.FORCE_COLOR = "1";
     proc = spawn(
       bunBin,
       ["run", openclawMjs, ...args],

@@ -1,7 +1,12 @@
 ﻿<script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import Electrobun from "electrobun/view";
-import type { OpenClawRPCSchema, AppStatus, ModelProvider, ConfiguredModel } from "../shared/rpc-types";
+import type {
+  OpenClawRPCSchema,
+  AppStatus,
+  ModelProvider,
+  ConfiguredModel,
+} from "../shared/rpc-types";
 import DashboardPage from "./components/DashboardPage.vue";
 import ModelPage from "./components/ModelPage.vue";
 import SkillsPage from "./components/SkillsPage.vue";
@@ -53,16 +58,32 @@ const currentModel = ref("");
 const configuredModels = ref<ConfiguredModel[]>([]);
 
 // PTY 状态（带 _ts 时间戳，确保每次推送都是新对象引用，watch 必然触发）
-const ptyChunk = ref<{ sessionId: string; data: string; _ts: number } | undefined>();
-const ptyExited = ref<{ sessionId: string; exitCode: number; _ts: number } | undefined>();
+const ptyChunk = ref<
+  { sessionId: string; data: string; _ts: number } | undefined
+>();
+const ptyExited = ref<
+  { sessionId: string; exitCode: number; _ts: number } | undefined
+>();
 
-const statusLabel = computed(() => ({
-  uninitialized: "未初始化", stopped: "已停止", starting: "启动中", running: "运行中"
-}[appStatus.value] ?? appStatus.value));
+const statusLabel = computed(
+  () =>
+    ({
+      uninitialized: "未初始化",
+      stopped: "已停止",
+      starting: "启动中",
+      running: "运行中",
+    })[appStatus.value] ?? appStatus.value,
+);
 
-const statusColor = computed(() => ({
-  uninitialized: "#6b7280", stopped: "#f59e0b", starting: "#3b82f6", running: "#10b981"
-}[appStatus.value] ?? "#6b7280"));
+const statusColor = computed(
+  () =>
+    ({
+      uninitialized: "#6b7280",
+      stopped: "#f59e0b",
+      starting: "#3b82f6",
+      running: "#10b981",
+    })[appStatus.value] ?? "#6b7280",
+);
 
 // ─── 操作 ─────────────────────────────────────────────────────────────────────
 
@@ -74,11 +95,19 @@ async function handleInitialize() {
   await rpc.request.initialize();
 }
 
-async function handleStart() { await rpc.request.start(); }
-async function handleStop() { await rpc.request.stop(); }
-async function handleOpenWebUI() { await rpc.request.openWebUI(); }
+async function handleStart() {
+  await rpc.request.start();
+}
+async function handleStop() {
+  await rpc.request.stop();
+}
+async function handleOpenWebUI() {
+  await rpc.request.openWebUI();
+}
 
-async function handleRunCommand(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function handleRunCommand(
+  args: string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   try {
     return await rpc.request.runCommand({ args });
   } catch (e) {
@@ -86,7 +115,11 @@ async function handleRunCommand(args: string[]): Promise<{ stdout: string; stder
   }
 }
 
-async function handlePtyStart(args: string[], cols: number, rows: number): Promise<string> {
+async function handlePtyStart(
+  args: string[],
+  cols: number,
+  rows: number,
+): Promise<string> {
   try {
     const { sessionId } = await rpc.request.ptyStart({ args, cols, rows });
     return sessionId;
@@ -99,7 +132,11 @@ async function handlePtyInput(sessionId: string, data: string): Promise<void> {
   await rpc.request.ptyInput({ sessionId, data });
 }
 
-async function handlePtyResize(sessionId: string, cols: number, rows: number): Promise<void> {
+async function handlePtyResize(
+  sessionId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
   await rpc.request.ptyResize({ sessionId, cols, rows });
 }
 
@@ -116,9 +153,11 @@ async function handleSaveModel(provider: ModelProvider) {
 async function refreshConfiguredModels() {
   try {
     configuredModels.value = await rpc.request.getConfiguredModels();
-    const active = configuredModels.value.find(m => m.active);
+    const active = configuredModels.value.find((m) => m.active);
     if (active) currentModel.value = `${active.name} / ${active.model}`;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function handleDeleteModel(name: string) {
@@ -141,7 +180,9 @@ onMounted(async () => {
   try {
     appStatus.value = await rpc.request.getStatus();
     await refreshConfiguredModels();
-  } catch { /* 等待 statusUpdate */ }
+  } catch {
+    /* 等待 statusUpdate */
+  }
 });
 </script>
 
@@ -157,9 +198,9 @@ onMounted(async () => {
         <button
           v-for="item in [
             { id: 'dashboard', icon: '🏠', label: '控制台' },
-            { id: 'model',     icon: '🤖', label: '模型配置' },
-            { id: 'skills',    icon: '🎯', label: '技能中心' },
-            { id: 'terminal',  icon: '💻', label: '终端' },
+            { id: 'model', icon: '🤖', label: '模型配置' },
+            { id: 'skills', icon: '🎯', label: '技能中心' },
+            { id: 'terminal', icon: '💻', label: '终端' },
           ]"
           :key="item.id"
           :class="['nav-item', currentPage === item.id && 'nav-active']"
@@ -173,13 +214,13 @@ onMounted(async () => {
         <div class="status-row">
           <span class="status-dot" :style="{ background: statusColor }"></span>
           <span class="status-text">{{ statusLabel }}</span>
-          <button class="theme-btn" @click="isDark = !isDark" :title="isDark ? '切换浅色' : '切换深色'">
-            {{ isDark ? '☀️' : '🌙' }}
+          <button
+            class="theme-btn"
+            @click="isDark = !isDark"
+            :title="isDark ? '切换浅色' : '切换深色'"
+          >
+            {{ isDark ? "☀️" : "🌙" }}
           </button>
-        </div>
-        <div class="sidebar-copyright">
-          <span>by </span>
-          <a href="https://www.vvhan.com" class="author-link" @click.prevent="handleOpenUrl('https://www.vvhan.com')">Han</a>
         </div>
       </div>
     </aside>
@@ -231,19 +272,41 @@ onMounted(async () => {
 <style scoped>
 /* ── 主题变量 ── */
 .dark {
-  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
-  --text: #e6edf3; --text2: #8b949e; --text3: #484f58;
-  --accent: #3b82f6; --accent-hover: #2563eb;
-  --success: #10b981; --warning: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --text3: #484f58;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
 }
 .light {
-  --bg: #f6f8fa; --bg2: #ffffff; --bg3: #f0f2f5; --border: #d0d7de;
-  --text: #1f2328; --text2: #656d76; --text3: #afb8c1;
-  --accent: #0969da; --accent-hover: #0550ae;
-  --success: #1a7f37; --warning: #9a6700; --danger: #cf222e; --info: #0969da;
+  --bg: #f6f8fa;
+  --bg2: #ffffff;
+  --bg3: #f0f2f5;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text2: #656d76;
+  --text3: #afb8c1;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --danger: #cf222e;
+  --info: #0969da;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 .app {
   box-sizing: border-box;
@@ -251,7 +314,8 @@ onMounted(async () => {
   display: flex;
   height: 100vh;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   background: var(--bg);
   color: var(--text);
@@ -279,8 +343,14 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
 }
-.logo-icon { font-size: 1.4rem; }
-.logo-text { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+.logo-icon {
+  font-size: 1.4rem;
+}
+.logo-text {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
 
 .sidebar-nav {
   flex: 1;
@@ -307,10 +377,21 @@ onMounted(async () => {
   text-align: left;
   width: 100%;
 }
-.nav-item:hover { background: var(--bg3); color: var(--text); }
-.nav-active { background: var(--accent) !important; color: #fff !important; }
-.nav-icon { font-size: 1rem; flex-shrink: 0; }
-.nav-label { font-weight: 500; }
+.nav-item:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+.nav-active {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.nav-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.nav-label {
+  font-weight: 500;
+}
 
 .sidebar-footer {
   padding: 10px 12px 12px;
@@ -354,21 +435,15 @@ onMounted(async () => {
   transition: background 0.15s;
   line-height: 1;
 }
-.theme-btn:hover { background: var(--bg3); }
+.theme-btn:hover {
+  background: var(--bg3);
+}
 
 .sidebar-copyright {
   font-size: 0.72rem;
   color: var(--text3);
   text-align: center;
 }
-
-.author-link {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-  cursor: pointer;
-}
-.author-link:hover { text-decoration: underline; }
 
 /* ── 主内容 ── */
 .main-content {
@@ -395,7 +470,14 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
 </style>

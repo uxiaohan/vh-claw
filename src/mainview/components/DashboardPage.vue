@@ -134,6 +134,8 @@ watch(() => props.logs.length, () => {
       <button class="copyright-link" @click="emit('openUrl', 'https://github.com/uxiaohan/vh-claw')">vh-claw</button>
       <span>·</span>
       <span>OpenClaw Portable</span>
+      <span>by </span>
+      <a href="https://www.vvhan.com" class="author-link" @click="emit('openUrl', 'https://www.vvhan.com')">Han</a>
     </div>
   </div>
 </template>
