@@ -1,5 +1,5 @@
 import { join, dirname, resolve } from "path";
-import { existsSync, mkdirSync, readdirSync, cpSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, cpSync, writeFileSync, unlinkSync } from "fs";
 import type { AppStatus, EnvStatus, OpenClawConfig, ModelProvider, ConfiguredModel } from "../shared/rpc-types";
 
 // Re-export so existing imports from RuntimeManager still work
@@ -963,16 +963,15 @@ export function ensureNpxShim(openclawDir: string): void {
       const shimSh = join(binDir, "npx");
       writeFileSync(shimSh, `#!/bin/sh\nexec '${eb(bunBin)}' x "$@"\n`, "utf8");
       Bun.spawnSync(["chmod", "+x", shimSh]);
-      // Mac：创建 openclaw shell shim（每次覆盖确保路径正确）
-      const openclawSh = join(binDir, "openclaw");
-      if (existsSync(openclawMjs)) {
-        writeFileSync(openclawSh, `#!/bin/sh\nexec '${eb(bunBin)}' run '${eb(openclawMjs)}' "$@"\n`, "utf8");
-        Bun.spawnSync(["chmod", "+x", openclawSh]);
-      }
       // Mac：创建 bunx shell shim
       const bunxSh = join(binDir, "bunx");
       writeFileSync(bunxSh, `#!/bin/sh\nexec '${eb(bunBin)}' x "$@"\n`, "utf8");
       Bun.spawnSync(["chmod", "+x", bunxSh]);
+      // Mac：删除旧的 openclaw shim（bun 会把 shell 脚本当 JS 解析导致启动报错）
+      const openclawSh = join(binDir, "openclaw");
+      if (existsSync(openclawSh)) {
+        try { unlinkSync(openclawSh); } catch { /* ignore */ }
+      }
     }
   } catch {
     // 创建失败不影响主流程
