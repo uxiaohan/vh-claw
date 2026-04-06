@@ -789,14 +789,7 @@ export async function stopOpenClaw(): Promise<void> {
       stderr: "inherit",
     });
   } else {
-    // Mac：先发 SIGTERM，再用 lsof 强制杀掉端口占用进程
-    _openclawProcess.kill("SIGTERM");
-    if (pid) {
-      try {
-        Bun.spawnSync(["sh", "-c", `lsof -ti tcp:${OPENCLAW_PORT} | xargs kill -9 2>/dev/null || true`],
-          { stdout: "ignore", stderr: "ignore" });
-      } catch { /* ignore */ }
-    }
+    _openclawProcess.kill();
   }
 
   // 等待退出（最多 5 秒）
