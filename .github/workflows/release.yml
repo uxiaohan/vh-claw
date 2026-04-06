@@ -8,6 +8,10 @@ on:
         required: true
         default: "v1.0.0"
 
+env:
+  OPENCLAW_VERSION: "2026.4.2"
+  BUN_REGISTRY: "https://mirrors.huaweicloud.com/repository/npm/"
+
 jobs:
   build-windows:
     name: Build Windows
@@ -26,34 +30,57 @@ jobs:
       - name: Build (Windows)
         run: bun run build:win
 
-      - name: Package artifacts
+      - name: Pre-install OpenClaw & Package
         shell: pwsh
         run: |
-          # 找到 tar.zst 文件
           $zst = Get-ChildItem -Path "build/" -Filter "*.tar.zst" -Recurse | Select-Object -First 1
-          if ($zst) {
-            # 创建临时解压目录
-            $extractDir = "win-extract"
-            New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-            
-            # 使用 tar 解压 .tar.zst 文件
-            tar -xf $zst.FullName -C $extractDir
+          if (-not $zst) { Write-Error "tar.zst not found"; exit 1 }
 
-            # 复制启动脚本到 U 盘根目录（extractDir 下的第一级目录）
-            $appDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
-            if ($appDir) {
-              Copy-Item "resources/Windows启动.bat" -Destination "$($appDir.FullName)\Windows启动.bat" -Force
+          $extractDir = "win-extract"
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+          tar -xf $zst.FullName -C $extractDir
+
+          # 找到 bun.exe
+          $bunExe = Get-ChildItem -Path $extractDir -Filter "bun.exe" -Recurse | Select-Object -First 1
+          if (-not $bunExe) { Write-Error "bun.exe not found"; exit 1 }
+
+          $openclawDir = Join-Path $bunExe.DirectoryName "data\openclaw"
+          New-Item -ItemType Directory -Force -Path $openclawDir | Out-Null
+
+          # 写入 package.json
+          $pkg = @"
+          {
+            "name": "openclaw-runtime",
+            "version": "1.0.0",
+            "dependencies": {
+              "openclaw": "${{ env.OPENCLAW_VERSION }}",
+              "@slack/web-api": "latest",
+              "@slack/bolt": "latest",
+              "@larksuiteoapi/node-sdk": "latest",
+              "@zed-industries/codex-acp": "^0.11.1",
+              "@tencent-weixin/openclaw-weixin": "latest"
             }
-            
-            # 将解压后的文件打包成 zip
-            Compress-Archive -Path "$extractDir\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force
-            
-            # 清理临时目录
-            Remove-Item -Recurse -Force $extractDir
-          } else {
-            Write-Error "tar.zst file not found!"
-            exit 1
           }
+          "@
+          Set-Content -Path "$openclawDir\package.json" -Value $pkg.Trim()
+
+          # 写入 bunfig.toml
+          Set-Content -Path "$openclawDir\bunfig.toml" -Value "[install]`nregistry = `"${{ env.BUN_REGISTRY }}`""
+
+          # 运行 bun install
+          & $bunExe.FullName install --no-progress --cwd $openclawDir
+          if ($LASTEXITCODE -ne 0) { Write-Error "bun install failed"; exit 1 }
+          Write-Host "OpenClaw pre-installed"
+
+          # 复制启动脚本
+          $appDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
+          if ($appDir) {
+            Copy-Item "resources/Windows启动.bat" -Destination "$($appDir.FullName)\Windows启动.bat" -Force
+          }
+
+          # 打包
+          Compress-Archive -Path "$extractDir\*" -DestinationPath "vh-claw-${{ github.event.inputs.version }}-windows-x64.zip" -Force
+          Remove-Item -Recurse -Force $extractDir
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -79,23 +106,37 @@ jobs:
       - name: Build (macOS)
         run: bun run build:mac
 
-      - name: Package installer
+      - name: Pre-install OpenClaw & Package
         run: |
-          # 找 tar.zst 解压，fallback 直接找 .app
           TARZST=$(find build/ -name "*.tar.zst" | head -1)
-          if [ -n "$TARZST" ]; then
-            mkdir -p mac-extract
-            tar -xf "$TARZST" -C mac-extract
-            xattr -cr mac-extract/ || true
-            APP=$(find mac-extract/ -name "*.app" -maxdepth 5 | head -1)
-            [ -z "$APP" ] && APP="mac-extract"
-          else
-            APP=$(find build/ -name "*.app" -maxdepth 5 | head -1)
-            [ -z "$APP" ] && APP="build"
-            xattr -cr "$APP" || true
-          fi
+          if [ -z "$TARZST" ]; then echo "tar.zst not found"; exit 1; fi
+
+          mkdir -p mac-extract
+          tar -xf "$TARZST" -C mac-extract
+
+          BUN_BIN=$(find mac-extract/ -name "bun" -type f | head -1)
+          if [ -z "$BUN_BIN" ]; then echo "bun not found"; exit 1; fi
+          chmod +x "$BUN_BIN"
+
+          OPENCLAW_DIR="$(dirname "$BUN_BIN")/data/openclaw"
+          mkdir -p "$OPENCLAW_DIR"
+
+          # 写入 package.json（用 printf 避免 YAML heredoc 缩进问题）
+          printf '{\n  "name": "openclaw-runtime",\n  "version": "1.0.0",\n  "dependencies": {\n    "openclaw": "%s",\n    "@slack/web-api": "latest",\n    "@slack/bolt": "latest",\n    "@larksuiteoapi/node-sdk": "latest",\n    "@zed-industries/codex-acp": "^0.11.1",\n    "@tencent-weixin/openclaw-weixin": "latest"\n  }\n}\n' "${{ env.OPENCLAW_VERSION }}" > "$OPENCLAW_DIR/package.json"
+
+          # 写入 bunfig.toml
+          printf '[install]\nregistry = "%s"\n' "${{ env.BUN_REGISTRY }}" > "$OPENCLAW_DIR/bunfig.toml"
+
+          # 运行 bun install
+          "$BUN_BIN" install --no-progress --cwd "$OPENCLAW_DIR"
+          echo "OpenClaw pre-installed"
+
+          # 去除隔离属性并打包
+          xattr -cr mac-extract/ || true
+          APP=$(find mac-extract/ -name "*.app" -maxdepth 5 | head -1)
+          [ -z "$APP" ] && APP="mac-extract"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "vh-claw-${{ github.event.inputs.version }}-macos-arm64.zip"
-          [ -d "mac-extract" ] && rm -rf mac-extract || true
+          rm -rf mac-extract
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -134,7 +175,7 @@ jobs:
 
             | 平台 | 文件 | 说明 |
             |------|------|------|
-            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `Windows启动.bat` 运行，首次运行需联网下载运行时 |
+            | Windows x64 | `vh-claw-*-windows-x64.zip` | 解压后双击 `Windows启动.bat` 运行 |
             | macOS arm64 | `vh-claw-*-macos-arm64.zip` | 解压后将 .app 拖入 U 盘，双击启动 |
           draft: false
           prerelease: false
