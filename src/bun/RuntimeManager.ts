@@ -1097,26 +1097,27 @@ export async function openTerminal(): Promise<void> {
     await Bun.write(batPath, initCmd);
     exec(`start cmd.exe /k "${batPath}"`);
   } else if (process.platform === "darwin") {
-    // 写临时 shell 脚本，避免 osascript 字符串转义问题
-    // PATH 已包含 node_modules/.bin（含 openclaw/bunx shim），无需 alias
     const e = (s: string) => s.replace(/'/g, "'\\''"); // shell 单引号转义
     const sharedRoot = getSharedRoot();
-    const initSh = [
-      "#!/bin/sh",
+    // 写自定义 .zshrc，让 zsh 加载我们的环境变量（通过 ZDOTDIR 覆盖）
+    const realHome = process.env.HOME ?? "/Users/" + (process.env.USER ?? "");
+    const zshrcContent = [
+      `# OpenClaw Terminal — auto-generated`,
+      // 先加载用户原始 .zshrc（用真实 HOME，不是 U 盘路径）
+      `[ -f '${e(realHome)}/.zshrc' ] && source '${e(realHome)}/.zshrc' 2>/dev/null || true`,
+      // 再覆盖 PATH（确保 bun/bunx/openclaw 优先，覆盖 .zshrc 里的 PATH）
       `export PATH='${e(bunDir)}:${e(binDir)}:${e(existingPath)}'`,
       `export OPENCLAW_STATE_DIR='${e(stateDir)}'`,
       `export OPENCLAW_CONFIG_PATH='${e(configPath)}'`,
       `export HOME='${e(join(sharedRoot, "config"))}'`,
-      `echo 'OpenClaw Terminal Ready'`,
-      `echo 'Can use: bun / bunx / openclaw'`,
-      `echo 'Example: openclaw status'`,
-      `exec $SHELL -l`,
+      `echo 'OpenClaw Terminal Ready — Can use: bun / bunx / openclaw'`,
     ].join("\n");
-    const shPath = join(stateDir, "_terminal.sh");
-    await Bun.write(shPath, initSh);
-    Bun.spawnSync(["chmod", "+x", shPath]);
-    // shPath 不含特殊字符（在 config/ 目录下），osascript 可直接传
-    exec(`osascript -e 'tell application "Terminal" to do script "${shPath}"'`);
+    const zdotdir = stateDir; // 用 stateDir 作为 ZDOTDIR
+    await Bun.write(join(zdotdir, ".zshrc"), zshrcContent);
+    // 通过 ZDOTDIR 让 zsh 加载我们的 .zshrc
+    const escapedZdotdir = zdotdir.replace(/'/g, "'\\''");
+    const cmd = `ZDOTDIR='${escapedZdotdir}' zsh -i`;
+    exec(`osascript -e 'tell application "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"'`);
   }
 }
 
