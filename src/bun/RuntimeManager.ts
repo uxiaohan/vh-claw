@@ -15,7 +15,7 @@ const BUN_REGISTRY = "https://mirrors.huaweicloud.com/repository/npm/";
 const OPENCLAW_PORT = 18789;
 
 // 固定 token
-const GATEWAY_TOKEN = "vh-claw";
+const GATEWAY_TOKEN = "https://github.com/uxiaohan/vh-claw";
 
 // ─── 类型 ────────────────────────────────────────────────────────────────────
 
@@ -129,11 +129,13 @@ function formatBytes(bytes: number): string {
 export async function checkEnvironment(): Promise<EnvStatus> {
   const bunExists = existsSync(getBunBinary());
 
-  // openclaw 安装后 node_modules/openclaw 目录存在，且飞书插件依赖已安装
+  // openclaw 安装后 node_modules/openclaw 目录存在，且所有外部依赖已安装
   const openclawInstalled =
     existsSync(join(getOpenClawDir(), "package.json")) &&
     existsSync(join(getOpenClawDir(), "node_modules", "openclaw")) &&
-    existsSync(join(getOpenClawDir(), "node_modules", "@larksuiteoapi", "node-sdk"));
+    existsSync(join(getOpenClawDir(), "node_modules", "@larksuiteoapi", "node-sdk")) &&
+    existsSync(join(getOpenClawDir(), "node_modules", "@slack", "web-api")) &&
+    existsSync(join(getOpenClawDir(), "node_modules", "@tencent-weixin", "openclaw-weixin"));
 
   const status: EnvStatus = { bunExists, openclawInstalled };
 
@@ -278,6 +280,7 @@ export async function installOpenClaw(
 
   // 写入 package.json，声明 openclaw 及插件依赖
   // @larksuiteoapi/node-sdk 是 openclaw 内置飞书插件的外部依赖，需手动补充
+  // @tencent-weixin/openclaw-weixin 通过 bun install 安装，绕过 openclaw plugins install 的 Windows tgz 解压问题
   const pkgPath = join(openclawDir, "package.json");
   await Bun.write(
     pkgPath,
@@ -286,11 +289,13 @@ export async function installOpenClaw(
         name: "openclaw-runtime",
         version: "1.0.0",
         dependencies: {
-          openclaw: "latest",
+          openclaw: "2026.4.2",
+          // openclaw 内置 Slack 插件的外部依赖，必须安装否则启动报错
           "@slack/web-api": "latest",
-          "@sliverp/qqbot": "latest",
+          "@slack/bolt": "latest",
           "@larksuiteoapi/node-sdk": "latest",
           "@zed-industries/codex-acp": "^0.11.1",
+          "@tencent-weixin/openclaw-weixin": "latest",
         },
       },
       null, 2,
@@ -338,6 +343,10 @@ export async function installOpenClaw(
 
   // 确保 state 目录和默认配置存在
   await ensureDefaultConfig();
+
+  // 自动启用微信插件（通过 openclaw config set）
+  onProgress("正在启用微信插件...", 90);
+  await enableWeixinPlugin(openclawDir);
 
   // 创建 warning-filter shim（openclaw.mjs 动态 import 无 hash 路径）
   ensureWarningFilterShim(openclawDir);
@@ -446,6 +455,17 @@ export async function writeConfig(patch: Partial<OpenClawConfig>): Promise<void>
     lastTouchedAt: new Date().toISOString(),
   };
   await Bun.write(getConfigFilePath(), JSON.stringify(merged, null, 2));
+}
+
+/** 读取渠道配置 */
+export async function getChannels(): Promise<Record<string, unknown>> {
+  const cfg = await readConfig();
+  return (cfg.channels as Record<string, unknown>) ?? {};
+}
+
+/** 保存渠道配置（合并写入 openclaw.json） */
+export async function saveChannels(channels: Record<string, unknown>): Promise<void> {
+  await writeConfig({ channels: channels as OpenClawConfig["channels"] });
 }
 
 /** 配置指定模型 provider */
@@ -597,6 +617,23 @@ export async function initialize(onProgress: ProgressCallback): Promise<void> {
   } else {
     // 已安装，确保默认配置存在
     await ensureDefaultConfig();
+    // 如果 @tencent-weixin/openclaw-weixin 未安装，补装（package.json 已声明依赖）
+    const openclawDir = getOpenClawDir();
+    const weixinPkg = join(openclawDir, "node_modules", "@tencent-weixin", "openclaw-weixin");
+    if (!existsSync(weixinPkg)) {
+      onProgress("正在安装微信插件包...", 92);
+      const bunBin = getBunBinary();
+      const proc = Bun.spawn([bunBin, "install", "--no-progress"], {
+        cwd: openclawDir,
+        env: { ...process.env, BUN_CONFIG_REGISTRY: BUN_REGISTRY },
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await proc.exited;
+    }
+    // 确保微信插件已通过 load.paths 注册（幂等）
+    onProgress("正在检查微信插件...", 95);
+    await enableWeixinPlugin(openclawDir);
   }
 
   _status = "stopped";
@@ -624,6 +661,8 @@ export async function startOpenClaw(
   // 确保 warning-filter shim 和 npx shim 存在
   ensureWarningFilterShim(openclawDir);
   ensureNpxShim(openclawDir);
+  // 后台异步安装微信插件，不阻塞启动流程
+  enableWeixinPlugin(openclawDir).catch(() => {});
 
   const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
   const bunDir = dirname(bunBin);
@@ -656,8 +695,8 @@ export async function startOpenClaw(
         PATH: systemPath,
         OPENCLAW_STATE_DIR: stateDir,
         OPENCLAW_CONFIG_PATH: configPath,
-        // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
-        // 与 OPENCLAW_STATE_DIR 保持一致，workspace 也落在 config/.openclaw/workspace
+        // 覆盖 HOME/USERPROFILE 为 U 盘 config/ 目录，确保 workspace 落在 U 盘而非 C 盘
+        // TEMP/TMP/APPDATA/LOCALAPPDATA 保留系统原始值，确保截图等系统功能正常
         HOME: join(getSharedRoot(), "config"),
         USERPROFILE: join(getSharedRoot(), "config"),
       },
@@ -826,6 +865,69 @@ export function ensureWarningFilterShim(openclawDir: string): void {
 }
 
 /**
+ * 确保所有通过 bun install 安装的外部插件都注册到 openclaw.json 的 plugins.load.paths。
+ * 绕过 openclaw plugins install 的 Windows tgz 解压问题。
+ * 幂等，每次启动时调用，自动更新路径（U 盘盘符可能变化）。
+ */
+export async function enableWeixinPlugin(openclawDir: string): Promise<void> {
+  // 需要注册的插件列表：[包路径片段, pluginId]
+  // 注意：openclaw 内置了 qqbot 插件，不能重复注册，否则报 duplicate plugin id 错误
+  const PLUGIN_ENTRIES: Array<{ pkgSubPath: string; pluginId: string }> = [
+    { pkgSubPath: join("@tencent-weixin", "openclaw-weixin"), pluginId: "openclaw-weixin" },
+  ];
+
+  // 收集已安装的插件路径
+  const installedPaths: string[] = [];
+  const installedPluginIds: string[] = [];
+  for (const entry of PLUGIN_ENTRIES) {
+    const pkgDir = join(openclawDir, "node_modules", entry.pkgSubPath);
+    if (existsSync(pkgDir)) {
+      installedPaths.push(pkgDir);
+      installedPluginIds.push(entry.pluginId);
+    }
+  }
+  if (installedPaths.length === 0) return;
+
+  try {
+    const cfg = await readConfig();
+    const cfgAny = cfg as Record<string, unknown>;
+    const plugins = cfgAny.plugins as Record<string, unknown> | undefined;
+    const loadPaths = (plugins?.load as Record<string, unknown> | undefined)?.paths as string[] | undefined;
+
+    // 过滤掉旧的插件路径（路径可能因 U 盘盘符变化），再加入当前路径
+    const filteredPaths = (loadPaths ?? []).filter((p: string) =>
+      !PLUGIN_ENTRIES.some(e => p.includes(e.pkgSubPath.replace(/\\/g, "/")) || p.includes(e.pkgSubPath)),
+    );
+    const mergedPaths = Array.from(new Set([...filteredPaths, ...installedPaths]));
+
+    // 如果路径完全一致，跳过写入
+    const pathsUnchanged = mergedPaths.length === (loadPaths?.length ?? 0) &&
+      installedPaths.every(p => loadPaths?.includes(p));
+    if (pathsUnchanged) return;
+
+    // 构建 entries：只为已安装的插件写入 enabled: true
+    const existingEntries = (plugins?.entries as Record<string, unknown>) ?? {};
+    const newEntries: Record<string, unknown> = { ...existingEntries };
+    for (const pluginId of installedPluginIds) {
+      newEntries[pluginId] = { ...(existingEntries[pluginId] as Record<string, unknown> ?? {}), enabled: true };
+    }
+
+    const patch = {
+      plugins: {
+        ...(plugins ?? {}),
+        load: {
+          ...((plugins?.load as Record<string, unknown>) ?? {}),
+          paths: mergedPaths,
+        },
+        entries: newEntries,
+      },
+    } as Partial<OpenClawConfig>;
+
+    await writeConfig(patch);
+  } catch { /* 失败不影响主流程 */ }
+}
+
+/**
  * 在 node_modules/.bin/ 下创建 npx shim，让 openclaw 能用 bunx 替代 npx。
  * 便携环境无 Node.js/npm，openclaw 内部调用 npx 时会失败，
  * 通过 shim 将 npx 重定向到 bun x（功能等价）。
@@ -835,6 +937,7 @@ export function ensureNpxShim(openclawDir: string): void {
   if (!existsSync(binDir)) return;
 
   const bunBin = getBunBinary();
+  const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
 
   try {
     if (process.platform === "win32") {
@@ -843,12 +946,29 @@ export function ensureNpxShim(openclawDir: string): void {
       if (!existsSync(shimCmd)) {
         writeFileSync(shimCmd, `@"${bunBin}" x %*\r\n`, "utf8");
       }
+      // Windows：创建 bunx.cmd shim（bun x 的别名）
+      const bunxCmd = join(binDir, "bunx.cmd");
+      if (!existsSync(bunxCmd)) {
+        writeFileSync(bunxCmd, `@"${bunBin}" x %*\r\n`, "utf8");
+      }
+      // Windows：创建 openclaw.cmd shim，让 openclaw-weixin-cli 能找到 openclaw
+      // 每次都覆盖，确保路径正确（bunBin/openclawMjs 可能随版本变化）
+      const openclawCmd = join(binDir, "openclaw.cmd");
+      if (existsSync(openclawMjs)) {
+        writeFileSync(openclawCmd, `@"${bunBin}" run "${openclawMjs}" %*\r\n`, "utf8");
+      }
     } else {
       // Mac：创建 npx shell shim
       const shimSh = join(binDir, "npx");
       if (!existsSync(shimSh)) {
         writeFileSync(shimSh, `#!/bin/sh\nexec "${bunBin}" x "$@"\n`, "utf8");
         Bun.spawnSync(["chmod", "+x", shimSh]);
+      }
+      // Mac：创建 openclaw shell shim（每次覆盖确保路径正确）
+      const openclawSh = join(binDir, "openclaw");
+      if (existsSync(openclawMjs)) {
+        writeFileSync(openclawSh, `#!/bin/sh\nexec "${bunBin}" run "${openclawMjs}" "$@"\n`, "utf8");
+        Bun.spawnSync(["chmod", "+x", openclawSh]);
       }
     }
   } catch {
@@ -885,7 +1005,7 @@ export async function runOpenClawCommand(
   }
   env["OPENCLAW_STATE_DIR"] = stateDir;
   env["OPENCLAW_CONFIG_PATH"] = configPath;
-  // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
+  // 覆盖 HOME/USERPROFILE 为 U 盘 config/ 目录，确保 workspace 落在 U 盘而非 C 盘
   env["HOME"] = join(getSharedRoot(), "config");
   env["USERPROFILE"] = join(getSharedRoot(), "config");
   // Mac GUI 应用 PATH 不含 bun 目录，注入确保子进程能找到 bun 自身
@@ -933,24 +1053,40 @@ export async function openTerminal(): Promise<void> {
   const existingPath = process.env.PATH ?? "";
 
   if (process.platform === "win32") {
+    // 确保 bunx.cmd shim 存在（bun x 的别名）
+    const bunxCmd = join(binDir, "bunx.cmd");
+    if (!existsSync(bunxCmd)) {
+      try { writeFileSync(bunxCmd, `@"${bunBin}" x %*\r\n`, "utf8"); } catch { /* ignore */ }
+    }
     // 写临时 bat，设置环境变量后保持窗口
     const initCmd = [
       "@echo off",
       "title OpenClaw Terminal",
       `set "OPENCLAW_STATE_DIR=${stateDir}"`,
       `set "OPENCLAW_CONFIG_PATH=${configPath}"`,
+      `set "HOME=${join(getSharedRoot(), "config")}"`,
+      `set "USERPROFILE=${join(getSharedRoot(), "config")}"`,
       `set "PATH=${bunDir};${binDir};${existingPath}"`,
       "echo.",
-      "echo  OpenClaw Terminal - 可直接运行 openclaw 命令",
+      "echo  OpenClaw Terminal",
+      "echo  可用命令: bun / bunx / openclaw",
       `echo  例如: openclaw status`,
       "echo.",
     ].join("\r\n");
     const batPath = join(stateDir, "_terminal.bat");
     await Bun.write(batPath, initCmd);
-    // 用 exec 调用 start，这是在 Windows 上弹出新窗口最可靠的方式
     exec(`start cmd.exe /k "${batPath}"`);
   } else if (process.platform === "darwin") {
-    const script = `export PATH='${bunDir}:${binDir}:${existingPath}'; export OPENCLAW_STATE_DIR='${stateDir}'; export OPENCLAW_CONFIG_PATH='${configPath}'; echo 'OpenClaw Terminal Ready'`;
+    const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
+    const script = [
+      `export PATH='${bunDir}:${binDir}:${existingPath}'`,
+      `export OPENCLAW_STATE_DIR='${stateDir}'`,
+      `export OPENCLAW_CONFIG_PATH='${configPath}'`,
+      `export HOME='${join(getSharedRoot(), "config")}'`,
+      `alias openclaw='"${bunBin}" run "${openclawMjs}"'`,
+      `alias bunx='"${bunBin}" x'`,
+      `echo 'OpenClaw Terminal Ready — 可用命令: openclaw / bun / bunx'`,
+    ].join("; ");
     exec(`osascript -e 'tell application "Terminal" to do script "${script}"'`);
   }
 }
@@ -995,33 +1131,45 @@ export async function ptyStart(
   ensureNpxShim(openclawDir);
 
   const bunDir = dirname(bunBin);
+  const binDir = join(openclawDir, "node_modules", ".bin");
+  const sep = process.platform === "win32" ? ";" : ":";
   const existingPath = process.env.PATH ?? "";
-  const patchedPath = existingPath.includes(bunDir)
-    ? existingPath
-    : `${bunDir}:${existingPath}`;
+  let patchedPath = existingPath;
+  if (!patchedPath.includes(bunDir)) patchedPath = `${bunDir}${sep}${patchedPath}`;
+  if (!patchedPath.includes(binDir)) patchedPath = `${binDir}${sep}${patchedPath}`;
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: patchedPath,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
-    // 覆盖 HOME 为 config/ 目录，使 $HOME/.openclaw = config/.openclaw
+    // 覆盖 HOME/USERPROFILE 为 U 盘 config/ 目录，确保 workspace 落在 U 盘而非 C 盘
     HOME: join(getSharedRoot(), "config"),
     USERPROFILE: join(getSharedRoot(), "config"),
     COLUMNS: String(cols),
     LINES: String(rows),
   };
 
+  env.TERM = "xterm-256color";
+  env.COLORTERM = "truecolor";
+  env.FORCE_COLOR = "3";
+
+  // 特殊命令：weixin-login → 先确保插件已通过 load.paths 注册，再交互式扫码登录
+  const isWeixinLogin = args[0] === "weixin-login";
+  if (isWeixinLogin) {
+    // 写入 plugins.load.paths（幂等），让 openclaw 能识别 openclaw-weixin 渠道
+    await enableWeixinPlugin(openclawDir);
+  }
+  const spawnArgs = isWeixinLogin
+    ? [bunBin, "run", openclawMjs, "channels", "login", "--channel", "openclaw-weixin"]
+    : [bunBin, "run", openclawMjs, ...args];
+
   let proc: ReturnType<typeof spawn>;
 
   if (process.platform === "win32") {
-    // Windows：直接 spawn bun.exe，stdin/stdout/stderr 管道
-    env.TERM = "xterm-256color";
-    env.COLORTERM = "truecolor";
-    env.FORCE_COLOR = "3";
     proc = spawn(
-      bunBin,
-      ["run", openclawMjs, ...args],
+      spawnArgs[0],
+      spawnArgs.slice(1),
       {
         cwd: openclawDir,
         env,
@@ -1031,13 +1179,9 @@ export async function ptyStart(
       },
     );
   } else {
-    // Mac：pipe 模式，TERM=xterm-256color 保持颜色和 ANSI 序列支持
-    env.TERM = "xterm-256color";
-    env.COLORTERM = "truecolor";
-    env.FORCE_COLOR = "3";
     proc = spawn(
-      bunBin,
-      ["run", openclawMjs, ...args],
+      spawnArgs[0],
+      spawnArgs.slice(1),
       {
         cwd: openclawDir,
         env,

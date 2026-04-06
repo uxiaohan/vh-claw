@@ -11,6 +11,7 @@ import DashboardPage from "./components/DashboardPage.vue";
 import ModelPage from "./components/ModelPage.vue";
 import SkillsPage from "./components/SkillsPage.vue";
 import TerminalPage from "./components/TerminalPage.vue";
+import ChannelsPage from "./components/ChannelsPage.vue";
 
 // ─── RPC ─────────────────────────────────────────────────────────────────────
 
@@ -44,8 +45,16 @@ const electroview = new Electrobun.Electroview({ rpc });
 // ─── 状态 ─────────────────────────────────────────────────────────────────────
 
 const isDark = ref(true);
-type Page = "dashboard" | "model" | "skills" | "terminal";
+type Page = "dashboard" | "model" | "skills" | "terminal" | "channels";
 const currentPage = ref<Page>("dashboard");
+// 微信登录触发器：切换到终端页后自动执行微信登录
+const weixinLoginTrigger = ref(0);
+
+function goToWeixinLogin() {
+  currentPage.value = "terminal";
+  // 用 nextTick 确保 TerminalPage 已挂载后再触发
+  import("vue").then(({ nextTick }) => nextTick(() => { weixinLoginTrigger.value++; }));
+}
 
 const appStatus = ref<AppStatus>("uninitialized");
 const isInitializing = ref(false);
@@ -95,6 +104,8 @@ async function handleInitialize() {
 }
 
 async function handleStart() {
+  // 立即切换为启动中，不等 bun 侧推送，消除 2 秒延迟
+  appStatus.value = "starting";
   await rpc.request.start();
 }
 async function handleStop() {
@@ -212,6 +223,7 @@ onMounted(async () => {
           v-for="item in [
             { id: 'dashboard', icon: '🏠', label: '控制台' },
             { id: 'model', icon: '🤖', label: '模型配置' },
+            { id: 'channels', icon: '📡', label: '渠道接入' },
             { id: 'skills', icon: '🎯', label: '技能中心' },
             { id: 'terminal', icon: '💻', label: '终端' },
           ]"
@@ -255,7 +267,7 @@ onMounted(async () => {
         @start="handleStart"
         @stop="handleStop"
         @open-web-u-i="handleOpenWebUI"
-        @open-terminal="currentPage = 'terminal'"
+        @open-terminal="async () => { await rpc.request.openTerminal(); }"
         @clear-logs="logs = []"
         @open-url="handleOpenUrl"
       />
@@ -268,6 +280,14 @@ onMounted(async () => {
         @set-active-model="handleSetActiveModel"
       />
       <SkillsPage v-else-if="currentPage === 'skills'" />
+      <ChannelsPage
+        v-else-if="currentPage === 'channels'"
+        :on-save-channels="async (ch) => { await rpc.request.saveChannels({ channels: ch }); }"
+        :on-get-channels="async () => { return await rpc.request.getChannels(); }"
+        :on-open-url="handleOpenUrl"
+        :on-run-command="handleRunCommand"
+        :on-go-to-weixin-login="goToWeixinLogin"
+      />
       <TerminalPage
         v-else-if="currentPage === 'terminal'"
         :pty-chunk="ptyChunk"
@@ -277,6 +297,7 @@ onMounted(async () => {
         :on-pty-input="handlePtyInput"
         :on-pty-resize="handlePtyResize"
         :on-pty-stop="handlePtyStop"
+        :weixin-login-trigger="weixinLoginTrigger"
       />
     </main>
   </div>

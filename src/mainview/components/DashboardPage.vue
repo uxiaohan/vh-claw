@@ -53,7 +53,7 @@ watch(() => props.logs.length, () => {
         <div class="stat-icon">🤖</div>
         <div class="stat-body">
           <div class="stat-label">当前模型</div>
-          <div class="stat-value">{{ currentModel || '未配置' }}</div>
+          <div class="stat-value stat-value-ellipsis" :title="currentModel || '未配置'">{{ currentModel || '未配置' }}</div>
         </div>
       </div>
       <div class="stat-card">
@@ -142,6 +142,7 @@ watch(() => props.logs.length, () => {
 
 <style scoped>
 .dashboard-page { display: flex; flex-direction: column; }
+.stat-value-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .copyright {
   margin-top: 20px;
   padding: 12px 0;

@@ -84,6 +84,14 @@ const rpc = BrowserView.defineRPC<OpenClawRPCSchema>({
         return await RM.getDiskFreeSpace();
       },
 
+      saveChannels: async ({ channels }) => {
+        await RM.saveChannels(channels);
+      },
+
+      getChannels: async () => {
+        return await RM.getChannels();
+      },
+
       getConfig: async () => {
         return await RM.readConfig();
       },
@@ -106,6 +114,10 @@ const rpc = BrowserView.defineRPC<OpenClawRPCSchema>({
 
       openUrl: ({ url }) => {
         Utils.openExternal(url);
+      },
+
+      openTerminal: async () => {
+        await RM.openTerminal();
       },
 
       runCommand: async ({ args }) => {
@@ -144,9 +156,9 @@ const mainWindow = new BrowserWindow({
   url,
   frame: {
     width: 1100,
-    height: 720,
-    x: 160,
-    y: 100,
+    height: 755,
+    x: 0,
+    y: 0,
   },
   styleMask: { Resizable: true },
   rpc,

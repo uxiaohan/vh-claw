@@ -122,6 +122,11 @@ export interface OpenClawRPCSchema extends ElectrobunRPCSchema {
         params: { url: string };
         response: void;
       };
+      /** 打开带 openclaw/bun/bunx PATH 的系统终端窗口 */
+      openTerminal: {
+        params: undefined;
+        response: void;
+      };
       /** 执行 openclaw 命令，返回输出 */
       runCommand: {
         params: { args: string[] };
@@ -136,6 +141,16 @@ export interface OpenClawRPCSchema extends ElectrobunRPCSchema {
       getDiskFree: {
         params: undefined;
         response: string;
+      };
+      /** 保存渠道配置（合并写入 openclaw.json） */
+      saveChannels: {
+        params: { channels: Record<string, unknown> };
+        response: void;
+      };
+      /** 读取渠道配置 */
+      getChannels: {
+        params: undefined;
+        response: Record<string, unknown>;
       };
       /** 读取当前 openclaw.json 配置 */
       getConfig: {

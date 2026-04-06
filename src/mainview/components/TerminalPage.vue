@@ -15,6 +15,8 @@ const props = defineProps<{
   // PTY 数据推送（每次推送为新对象引用，确保 watch 触发）
   ptyChunk?: { sessionId: string; data: string; _ts: number };
   ptyExited?: { sessionId: string; exitCode: number; _ts: number };
+  // 微信登录触发器（从渠道页跳转时自增）
+  weixinLoginTrigger?: number;
 }>();
 
 // ── 快捷命令（非交互式）──────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ const isInteractive = ref(false);
 const cmdHistory = ref<string[]>([]);
 const historyIdx = ref(-1);
 const inputEl = ref<HTMLInputElement | null>(null);
+const weixinLoginPending = ref(false);
 
 function initTerm() {
   if (!termEl.value || term) return;
@@ -157,12 +160,14 @@ async function handleSubmit() {
   }
 }
 
-async function startInteractive(args: string[]) {
+async function startInteractive(args: string[], skipHeader = false) {
   if (!term || !fitAddon) return;
   isRunning.value = true;
   isInteractive.value = true;
-  term.writeln(`\x1b[94m$ openclaw ${args.join(" ")}\x1b[0m`);
-  term.writeln(`\x1b[90m[交互模式] 使用键盘操作，按 Ctrl+C 退出\x1b[0m`);
+  if (!skipHeader) {
+    term.writeln(`\x1b[94m$ openclaw ${args.join(" ")}\x1b[0m`);
+    term.writeln(`\x1b[90m[交互模式] 使用键盘操作，按 Ctrl+C 退出\x1b[0m`);
+  }
   term.focus();
 
   const cols = term.cols;
@@ -200,6 +205,17 @@ function clearTerm() {
   term?.writeln("\x1b[90mOpenClaw 内置终端\x1b[0m\r\n");
 }
 
+// ── 微信登录（交互式 PTY）────────────────────────────────────────────────────
+async function startWeixinLogin() {
+  if (isRunning.value || isInteractive.value) return;
+  weixinLoginPending.value = true;
+  term?.writeln("\x1b[94m$ openclaw channels login --channel openclaw-weixin\x1b[0m");
+  term?.writeln("\x1b[90m[交互模式] 正在安装插件并生成二维码，请用微信扫码...\x1b[0m");
+  term?.focus();
+  await startInteractive(["weixin-login"], true);
+  weixinLoginPending.value = false;
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === "ArrowUp") {
     e.preventDefault();
@@ -225,6 +241,14 @@ watch(() => props.ptyChunk, (chunk) => {
   if (chunk.sessionId === sessionId.value) {
     // 规范化换行：\n → \r\n，避免光标不回行首导致的阶梯状显示
     term.write(chunk.data.replace(/\r?\n/g, "\r\n"));
+  }
+});
+
+// 监听微信登录触发器（从渠道页跳转时自动执行）
+watch(() => props.weixinLoginTrigger, (val) => {
+  if (val && val > 0) {
+    // 确保 term 已初始化后再执行
+    nextTick(() => startWeixinLogin());
   }
 });
 
@@ -267,6 +291,11 @@ onUnmounted(() => {
         :disabled="isRunning || isInteractive"
         @click="runCmd(cmd.args)"
       >{{ cmd.label }}</button>
+      <button
+        class="quick-btn quick-btn-weixin"
+        :disabled="isRunning || isInteractive"
+        @click="startWeixinLogin"
+      >💚 微信登录</button>
       <button class="quick-btn quick-btn-warn" :disabled="!isInteractive" @click="stopInteractive">停止交互</button>
       <button class="quick-btn quick-btn-clear" @click="clearTerm">清空</button>
     </div>
@@ -353,6 +382,8 @@ onUnmounted(() => {
 .quick-btn-clear:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .quick-btn-warn { border-color: var(--warning); color: var(--warning); }
 .quick-btn-warn:hover:not(:disabled) { background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.quick-btn-weixin { border-color: #10b981; color: #10b981; }
+.quick-btn-weixin:hover:not(:disabled) { background: color-mix(in srgb, #10b981 10%, transparent); }
 
 .xterm-container {
   flex: 1;

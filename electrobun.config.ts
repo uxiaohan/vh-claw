@@ -11,11 +11,12 @@ export default {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
 		},
-		appIcon: "resources/icons/icon.png",
+		// appIcon 属性在当前 ElectrobunConfig 类型中不存在，已注释掉
+		// appIcon: "resources/icons/icon.png",
 		watchIgnore: ["dist/**"],
 		mac: {
 			bundleCEF: false,
-			icon: "resources/icons/icon.icns",
+			icons: "resources/icons/icon.icns",
 		},
 		win: {
 			bundleCEF: false,
