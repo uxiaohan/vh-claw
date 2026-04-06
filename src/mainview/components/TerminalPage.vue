@@ -117,14 +117,11 @@ async function runCmd(args: string[]) {
   try {
     const result = await props.onRunCommand(args);
     if (result.stdout) {
-      result.stdout.split("\n").forEach(line => {
-        if (line.trim()) term?.writeln(line);
-      });
+      // 直接 write 原始输出，保留 ANSI 序列和 \r\n，不手动分割
+      term?.write(result.stdout.replace(/\r?\n/g, "\r\n"));
     }
     if (result.stderr) {
-      result.stderr.split("\n").forEach(line => {
-        if (line.trim()) term?.writeln(`\x1b[91m${line}\x1b[0m`);
-      });
+      term?.write(result.stderr.replace(/\r?\n/g, "\r\n"));
     }
     if (result.exitCode !== 0 && !result.stdout && !result.stderr) {
       term?.writeln(`\x1b[91m退出码: ${result.exitCode}\x1b[0m`);
@@ -226,7 +223,8 @@ function handleKeydown(e: KeyboardEvent) {
 watch(() => props.ptyChunk, (chunk) => {
   if (!chunk || !term) return;
   if (chunk.sessionId === sessionId.value) {
-    term.write(chunk.data);
+    // 规范化换行：\n → \r\n，避免光标不回行首导致的阶梯状显示
+    term.write(chunk.data.replace(/\r?\n/g, "\r\n"));
   }
 });
 
