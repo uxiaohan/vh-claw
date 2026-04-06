@@ -958,18 +958,21 @@ export function ensureNpxShim(openclawDir: string): void {
         writeFileSync(openclawCmd, `@"${bunBin}" run "${openclawMjs}" %*\r\n`, "utf8");
       }
     } else {
-      // Mac：创建 npx shell shim
+      const eb = (s: string) => s.replace(/'/g, "'\\''"); // shell 单引号转义
+      // Mac：创建 npx shell shim（每次覆盖，确保路径正确）
       const shimSh = join(binDir, "npx");
-      if (!existsSync(shimSh)) {
-        writeFileSync(shimSh, `#!/bin/sh\nexec "${bunBin}" x "$@"\n`, "utf8");
-        Bun.spawnSync(["chmod", "+x", shimSh]);
-      }
+      writeFileSync(shimSh, `#!/bin/sh\nexec '${eb(bunBin)}' x "$@"\n`, "utf8");
+      Bun.spawnSync(["chmod", "+x", shimSh]);
       // Mac：创建 openclaw shell shim（每次覆盖确保路径正确）
       const openclawSh = join(binDir, "openclaw");
       if (existsSync(openclawMjs)) {
-        writeFileSync(openclawSh, `#!/bin/sh\nexec "${bunBin}" run "${openclawMjs}" "$@"\n`, "utf8");
+        writeFileSync(openclawSh, `#!/bin/sh\nexec '${eb(bunBin)}' run '${eb(openclawMjs)}' "$@"\n`, "utf8");
         Bun.spawnSync(["chmod", "+x", openclawSh]);
       }
+      // Mac：创建 bunx shell shim
+      const bunxSh = join(binDir, "bunx");
+      writeFileSync(bunxSh, `#!/bin/sh\nexec '${eb(bunBin)}' x "$@"\n`, "utf8");
+      Bun.spawnSync(["chmod", "+x", bunxSh]);
     }
   } catch {
     // 创建失败不影响主流程
@@ -1069,25 +1072,34 @@ export async function openTerminal(): Promise<void> {
       `set "PATH=${bunDir};${binDir};${existingPath}"`,
       "echo.",
       "echo  OpenClaw Terminal",
-      "echo  可用命令: bun / bunx / openclaw",
-      `echo  例如: openclaw status`,
+      "echo  Can use: bun / bunx / openclaw",
+      `echo  Example: openclaw status`,
       "echo.",
     ].join("\r\n");
     const batPath = join(stateDir, "_terminal.bat");
     await Bun.write(batPath, initCmd);
     exec(`start cmd.exe /k "${batPath}"`);
   } else if (process.platform === "darwin") {
-    const openclawMjs = join(openclawDir, "node_modules", "openclaw", "openclaw.mjs");
-    const script = [
-      `export PATH='${bunDir}:${binDir}:${existingPath}'`,
-      `export OPENCLAW_STATE_DIR='${stateDir}'`,
-      `export OPENCLAW_CONFIG_PATH='${configPath}'`,
-      `export HOME='${join(getSharedRoot(), "config")}'`,
-      `alias openclaw='"${bunBin}" run "${openclawMjs}"'`,
-      `alias bunx='"${bunBin}" x'`,
-      `echo 'OpenClaw Terminal Ready — 可用命令: openclaw / bun / bunx'`,
-    ].join("; ");
-    exec(`osascript -e 'tell application "Terminal" to do script "${script}"'`);
+    // 写临时 shell 脚本，避免 osascript 字符串转义问题
+    // PATH 已包含 node_modules/.bin（含 openclaw/bunx shim），无需 alias
+    const e = (s: string) => s.replace(/'/g, "'\\''"); // shell 单引号转义
+    const sharedRoot = getSharedRoot();
+    const initSh = [
+      "#!/bin/sh",
+      `export PATH='${e(bunDir)}:${e(binDir)}:${e(existingPath)}'`,
+      `export OPENCLAW_STATE_DIR='${e(stateDir)}'`,
+      `export OPENCLAW_CONFIG_PATH='${e(configPath)}'`,
+      `export HOME='${e(join(sharedRoot, "config"))}'`,
+      `echo 'OpenClaw Terminal Ready'`,
+      `echo 'Can use: bun / bunx / openclaw'`,
+      `echo 'Example: openclaw status'`,
+      `exec $SHELL -l`,
+    ].join("\n");
+    const shPath = join(stateDir, "_terminal.sh");
+    await Bun.write(shPath, initSh);
+    Bun.spawnSync(["chmod", "+x", shPath]);
+    // shPath 不含特殊字符（在 config/ 目录下），osascript 可直接传
+    exec(`osascript -e 'tell application "Terminal" to do script "${shPath}"'`);
   }
 }
 
