@@ -33,6 +33,13 @@ VH-Claw/
 
 ## 快速开始
 
+## 截图
+
+![控制面板](https://wp-cdn.4ce.cn/v2/daFAsWg.png)
+![模型配置](https://wp-cdn.4ce.cn/v2/k4CRq2p.png)
+
+
+
 ### 下载安装
 
 1. 从 [Releases](https://github.com/vvhan/vh-claw/releases) 下载对应平台的最新版本
