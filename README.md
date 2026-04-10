@@ -173,9 +173,9 @@ A: 支持所有 OpenClaw 核心功能，包括：
 
 ## 致谢
 
-- [OpenClaw](https://github.com/sliverp/openclaw) - 强大的 AI Agent 框架
-- [Electrobun](https://blackboard.sh/electrobun/) - 优秀的跨平台桌面框架
-- [Bun](https://bun.com/) - 超快的 JavaScript 运行时
+- [OpenClaw](https://github.com/openclaw/openclaw) - 强大的 AI Agent 框架
+- [Electrobun](https://github.com/blackboardsh/electrobun) - 优秀的跨平台桌面框架
+- [Bun](https://github.com/oven-sh/bun) - 超快的 JavaScript 运行时
 
 ---
 
