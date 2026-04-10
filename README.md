@@ -42,7 +42,7 @@ VH-Claw/
 
 ### 下载安装
 
-1. 从 [Releases](https://github.com/vvhan/vh-claw/releases) 下载对应平台的最新版本
+1. 从 [Releases](https://github.com/uxiaohan/vh-claw/releases) 下载对应平台的最新版本
 2. 解压到任意目录（推荐 U 盘根目录）
 3. 运行启动文件：
    - Windows: `Windows启动.bat`
@@ -89,7 +89,7 @@ VH-Claw/
 
 ```bash
 # 克隆项目
-git clone https://github.com/vvhan/vh-claw.git
+git clone https://github.com/uxiaohan/vh-claw.git
 cd vh-claw
 
 # 安装依赖
