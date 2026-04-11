@@ -7,7 +7,6 @@ export type { AppStatus, EnvStatus };
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
 
-const GH_PROXY = "https://cdn.gh-proxy.org/";
 const BUN_RELEASE_BASE = "https://github.com/oven-sh/bun/releases/download/";
 const BUN_REGISTRY = "https://mirrors.huaweicloud.com/repository/npm/";
 
@@ -166,9 +165,8 @@ function getBunDownloadInfo(): { url: string; filename: string } {
 
   const version = "bun-v1.3.12";
   const rawUrl = `${BUN_RELEASE_BASE}${version}/${filename}`;
-  const url = `${GH_PROXY}${rawUrl}`;
 
-  return { url, filename };
+  return { url: rawUrl, filename };
 }
 
 export async function downloadBun(onProgress: ProgressCallback): Promise<void> {
