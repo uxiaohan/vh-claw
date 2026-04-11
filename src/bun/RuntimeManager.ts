@@ -164,7 +164,7 @@ function getBunDownloadInfo(): { url: string; filename: string } {
   const key = `${platform}-${arch}`;
   const filename = fileMap[key] ?? "bun-darwin-x64.zip";
 
-  const version = "bun-v1.3.11";
+  const version = "bun-v1.3.12";
   const rawUrl = `${BUN_RELEASE_BASE}${version}/${filename}`;
   const url = `${GH_PROXY}${rawUrl}`;
 
@@ -289,7 +289,7 @@ export async function installOpenClaw(
         name: "openclaw-runtime",
         version: "1.0.0",
         dependencies: {
-          openclaw: "2026.4.2",
+          openclaw: "2026.4.9",
           // openclaw 内置 Slack 插件的外部依赖，必须安装否则启动报错
           "@slack/web-api": "latest",
           "@slack/bolt": "latest",
